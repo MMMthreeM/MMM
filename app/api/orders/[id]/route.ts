@@ -10,7 +10,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json({ error: '未授權' }, { status: 401 });
     }
 
-    const orderId = params.id;
+    const orderId = id;
     const body = await request.json();
     const { status } = body;
 
