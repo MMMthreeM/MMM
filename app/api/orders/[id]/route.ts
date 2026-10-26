@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getGoogleSheets } from '@/lib/google-sheets';
 import { getServerSession } from "next-auth/next";
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await context.params;
     const session = await getServerSession();
     if (!session || !session.user?.email) {
       return NextResponse.json({ error: '未授權' }, { status: 401 });

@@ -21,12 +21,11 @@ export async function POST(request: Request) {
     const { filteredData } = body;
     if (!filteredData || filteredData.length === 0) return NextResponse.json({ error: '無資料' }, { status: 400 });
 
-    // 💡 1. 動態綁定 Materials 表頭 (不管單價建在哪一欄都不怕)
     const matRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Materials!A:Z' });
     const matRows = matRes.data.values || [];
     const priceMap = new Map<string, number>();
     
-    let priceIdx = 8, nameIdx = 1; // 預設值
+    let priceIdx = 8, nameIdx = 1; 
     if (matRows.length > 0) {
       const headers = matRows[0].map(h => String(h).toLowerCase().trim());
       const pIdx = headers.findIndex(h => h.includes('price') || h.includes('單價') || h.includes('nt'));
@@ -66,7 +65,6 @@ export async function POST(request: Request) {
     const redFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } };
     const borderAll: Partial<ExcelJS.Borders> = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
 
-    // 💡 2. 完美復刻截圖排版
     sheet1.addRow([]); sheet1.addRow([]);
     for(let i=1; i<=9+companyCount; i++) { sheet1.getCell(1, i).fill = yellowFill; sheet1.getCell(2, i).fill = yellowFill; }
 
@@ -148,6 +146,7 @@ export async function POST(request: Request) {
     filteredData.forEach((order: any) => sheet2.addRow({ ...order, quantity: Number(order.quantity) }));
 
     const buffer = await workbook.xlsx.writeBuffer();
-    return NextResponse.json({ status: 'success', fileContent: buffer.toString('base64') });
+    // 💡 核心修正：強制將 buffer 轉為 any，避開 Vercel 的嚴格型別誤判
+    return NextResponse.json({ status: 'success', fileContent: (buffer as any).toString('base64') });
   } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
 }
