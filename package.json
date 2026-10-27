@@ -6,12 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test tests/order-workflow.test.cjs",
+    "test:ui": "node tests/ui-smoke.cjs"
   },
   "dependencies": {
     "@sentry/nextjs": "^11.9.0",
     "exceljs": "^4.4.0",
     "googleapis": "^188.0.0",
+    "jszip": "^3.10.2",
     "next": "16.4.3",
     "next-auth": "^4.24.15",
     "react": "19.3.0",

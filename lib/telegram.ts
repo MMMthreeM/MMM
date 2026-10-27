@@ -2,12 +2,12 @@ export async function sendTelegramMessage(chatId: string, message: string, threa
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || !chatId) {
     console.error('❌ TG 推播取消: 缺少 TOKEN 或 ChatID');
-    return;
+    return false;
   }
 
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   
-  const payload: any = {
+  const payload: { chat_id: string; text: string; parse_mode: string; message_thread_id?: number } = {
     chat_id: String(chatId).trim(),
     text: message,
     parse_mode: 'HTML',
@@ -35,11 +35,11 @@ export async function sendTelegramMessage(chatId: string, message: string, threa
       } else {
         console.log(`✅ TG 推播成功 (ChatID: ${payload.chat_id}, Thread: ${threadId || '無'})`);
       }
-      return; // 只要有收到 Telegram 伺服器的明確回覆 (不管成功或失敗)，就結束任務
+      return res.ok && data.ok === true;
       
-    } catch (error: any) {
+    } catch (error) {
       retries--;
-      console.warn(`⚠️ TG 網路連線異常 (${error.code || error.message})，正在進行第 ${3 - retries} 次重試...`);
+      console.warn(`TG 網路連線異常，正在進行第 ${3 - retries} 次重試。`);
       
       if (retries === 0) {
         console.error('❌ TG 發送最終失敗 (網路持續中斷):', error);
@@ -49,4 +49,5 @@ export async function sendTelegramMessage(chatId: string, message: string, threa
       }
     }
   }
+  return false;
 }

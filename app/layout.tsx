@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 // 💡 改為引入我們剛建立的客戶端 Providers 包裝
 import Providers from '@/components/Providers'; 
-import ReportIssueButton from '@/components/ReportIssueButton';
 import NoticeBanner from '@/components/NoticeBanner';
+import AppShell from '@/components/AppShell';
 
 // 💡 伺服器端專屬的 PWA 資訊與手機主題顏色設定
 export const metadata: Metadata = {
@@ -27,10 +27,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {/* 💡 使用客戶端 Providers 包覆 */}
         <Providers>
-          <NoticeBanner />
-          {children}
+          <AppShell><NoticeBanner />{children}</AppShell>
         </Providers>
-        <ReportIssueButton />
       </body>
     </html>
   );

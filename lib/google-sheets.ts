@@ -10,7 +10,6 @@ export async function getGoogleSheets() {
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client as any });
+  const sheets = google.sheets({ version: 'v4', auth });
   return sheets;
 }

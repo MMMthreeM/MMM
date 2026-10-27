@@ -10,7 +10,8 @@ const handler = NextAuth({
     }),
   ],
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, profile }) {
+      if (!user.email || (profile && 'email_verified' in profile && profile.email_verified !== true)) return false;
       try {
         const sheets = await getGoogleSheets();
         const sheetId = process.env.GOOGLE_SHEET_ID;
@@ -29,13 +30,11 @@ const handler = NextAuth({
 
         const userEmail = user.email;
         // 檢查登入的信箱是否有在 A 欄 (row[0]) 之中
-        const isAllowed = rows.some((row) => row[0] === userEmail);
+        const isAllowed = rows.slice(1).some((row) => String(row[0]).toLowerCase() === userEmail?.toLowerCase() && ['Admin', 'User'].includes(String(row[1])) && (row[1] === 'Admin' || Boolean(row[2])));
 
         if (isAllowed) {
-          console.log(`✅ 授權登入成功: ${userEmail}`);
           return true; // 允許登入
         } else {
-          console.log(`❌ 拒絕登入，信箱未登記: ${userEmail}`);
           return false; // 拒絕登入，NextAuth 會自動阻擋並導向錯誤頁面
         }
       } catch (error) {

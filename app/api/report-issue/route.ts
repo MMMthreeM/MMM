@@ -1,17 +1,18 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
 import { sendTelegramMessage } from '@/lib/telegram';
+import { apiError, requireAccount } from '@/lib/access';
+import { escapeTelegramHtml } from '@/lib/telegram-html';
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession();
-    const userEmail = session?.user?.email || '未登入訪客';
+    const { account } = await requireAccount();
+    const userEmail = account.email;
     
     const body = await request.json();
     const { description, url } = body;
 
-    if (!description) {
-      return NextResponse.json({ error: '內容不可為空' }, { status: 400 });
+    if (typeof description !== 'string' || !description.trim() || description.length > 1500 || typeof url !== 'string' || url.length > 500) {
+      return NextResponse.json({ error: '請填寫問題描述（限 1500 字）。' }, { status: 400 });
     }
 
     const adminGroupId = process.env.TG_ADMIN_GROUP_ID;
@@ -20,12 +21,10 @@ export async function POST(request: Request) {
     const topicError = process.env.TG_TOPIC_ERROR || process.env.TG_TOPIC_RETURN;
 
     if (adminGroupId) {
-      const msg = `🐞 <b>使用者問題回報</b>\n回報人：${userEmail.split('@')[0]}\n發生頁面：${url}\n\n👉 <b>${description}</b>`;
+      const msg = `🐞 <b>使用者問題回報</b>\n回報人：${escapeTelegramHtml(userEmail.split('@')[0])}\n發生頁面：${escapeTelegramHtml(url)}\n\n👉 <b>${escapeTelegramHtml(description)}</b>`;
       await sendTelegramMessage(adminGroupId, msg, topicError);
     }
 
     return NextResponse.json({ status: 'success' });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  } catch (error) { return apiError(error, '問題回報失敗，請稍後再試。'); }
 }

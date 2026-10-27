@@ -36,7 +36,7 @@ export async function logAudit(userEmail: string, action: string, orderId: strin
     await sheets.spreadsheets.values.append({ 
       spreadsheetId: sheetId, 
       range: rangeToAppend, 
-      valueInputOption: 'USER_ENTERED', 
+      valueInputOption: 'RAW',
       requestBody: { values: [rowData] } 
     });
   } catch (error) {

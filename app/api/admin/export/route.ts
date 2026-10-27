@@ -1,152 +1,63 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import ExcelJS from 'exceljs';
-import { getGoogleSheets } from '@/lib/google-sheets';
+import JSZip from 'jszip';
+import { AccessError, apiError, requireAccount } from '@/lib/access';
+import { loadOrderSheet } from '@/lib/order-sheet';
+import { filterOrderGroups, groupOrders, type OrderFilters } from '@/lib/order-view';
+import { updateOrderStatuses } from '@/lib/order-actions';
+import { notifyOrderProgress } from '@/lib/order-notifications';
+import { buildVendorReports } from '@/lib/vendor-report';
+import { taipeiDate } from '@/lib/date-range';
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession();
-    if (!session || !session.user?.email) return NextResponse.json({ error: '未授權' }, { status: 401 });
-
-    const sheets = await getGoogleSheets();
-    const sheetId = process.env.GOOGLE_SHEET_ID;
-    
-    const userRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Users!A:B' });
-    const users = userRes.data.values || [];
-    if (!users.find(r => r[0] === session.user?.email && r[1] === 'Admin')) {
-      return NextResponse.json({ error: '權限不足' }, { status: 403 });
-    }
-
+    const { account, sheets, users } = await requireAccount(true);
     const body = await request.json();
-    const { filteredData } = body;
-    if (!filteredData || filteredData.length === 0) return NextResponse.json({ error: '無資料' }, { status: 400 });
-
-    const matRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Materials!A:Z' });
-    const matRows = matRes.data.values || [];
-    const priceMap = new Map<string, number>();
-    
-    let priceIdx = 8, nameIdx = 1; 
-    if (matRows.length > 0) {
-      const headers = matRows[0].map(h => String(h).toLowerCase().trim());
-      const pIdx = headers.findIndex(h => h.includes('price') || h.includes('單價') || h.includes('nt'));
-      const nIdx = headers.findIndex(h => h.includes('name') || h.includes('名稱') || h.includes('材料'));
-      if (pIdx !== -1) priceIdx = pIdx;
-      if (nIdx !== -1) nameIdx = nIdx;
-    }
-
-    matRows.slice(1).forEach(row => {
-      const name = row[nameIdx];
-      const priceVal = String(row[priceIdx] || '').replace(/,/g, '').trim();
-      if (name && !isNaN(parseFloat(priceVal))) priceMap.set(name, parseFloat(priceVal));
-    });
-
-    const companies = Array.from(new Set(filteredData.map((d: any) => d.reqCompany).filter(Boolean))) as string[];
-    const companyCount = companies.length;
-    const materialMap = new Map();
-    filteredData.forEach((d: any) => {
-      if (!materialMap.has(d.materialName)) {
-        materialMap.set(d.materialName, { name: d.materialName, unit: d.unit, vendor: d.vendor, companyTotals: {} });
-        companies.forEach(c => materialMap.get(d.materialName).companyTotals[c] = 0);
+    const scope = body.scope ?? 'filtered';
+    if (!['filtered', 'selected'].includes(scope) || !Array.isArray(body.orderIds) || !body.orderIds.length || body.orderIds.length > 200 || body.orderIds.some((id: unknown) => typeof id !== 'string' || !id)) throw new AccessError('請選取 1 至 200 張需求單。', 400);
+    const expectedDate = body.expectedDate ?? '';
+    if (typeof expectedDate !== 'string' || (expectedDate && (!/^\d{4}-\d{2}-\d{2}$/.test(expectedDate) || !Number.isFinite(Date.parse(expectedDate)) || new Date(expectedDate).toISOString().slice(0, 10) !== expectedDate))) throw new AccessError('請提供有效的預計交期。', 400);
+    const requested = new Set<string>(body.orderIds);
+    if (requested.size !== body.orderIds.length) throw new AccessError('匯出單據不可重複。', 400);
+    const filters: OrderFilters = {};
+    if (scope === 'filtered') {
+      if (!body.filters || typeof body.filters !== 'object' || Array.isArray(body.filters)) throw new AccessError('請先確認匯出範圍。', 400);
+      for (const key of ['company', 'region', 'vendor', 'material', 'status', 'startDate', 'endDate', 'search'] as const) {
+        if (body.filters[key] !== undefined && typeof body.filters[key] !== 'string') throw new AccessError('篩選格式不正確。', 400);
+        filters[key] = body.filters[key];
       }
-      materialMap.get(d.materialName).companyTotals[d.reqCompany] += Number(d.quantity);
-    });
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet1 = workbook.addWorksheet('維運材料總表');
-
-    sheet1.columns = [
-      { width: 6 }, { width: 35 }, { width: 6 }, { width: 12 }, { width: 8 }, { width: 10 }, { width: 12 },
-      ...companies.map(() => ({ width: 10 })), { width: 8 }, { width: 8 }
-    ];
-
-    const yellowFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
-    const blueFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-    const greenFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B050' } };
-    const redFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } };
-    const borderAll: Partial<ExcelJS.Borders> = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
-
-    sheet1.addRow([]); sheet1.addRow([]);
-    for(let i=1; i<=9+companyCount; i++) { sheet1.getCell(1, i).fill = yellowFill; sheet1.getCell(2, i).fill = yellowFill; }
-
-    sheet1.mergeCells('A1:D2');
-    sheet1.getCell('A1').value = '高雄PFI維修數量庫存(總表)';
-    sheet1.getCell('A1').font = { name: '微軟正黑體', size: 14, bold: true };
-    sheet1.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
-
-    sheet1.getCell('E1').value = '單價';
-    sheet1.getCell('E1').alignment = { vertical: 'middle', horizontal: 'center' };
-    sheet1.mergeCells('F1:G1');
-    sheet1.getCell('F1').value = 'JACK 協助維護';
-    sheet1.getCell('F1').fill = blueFill;
-    sheet1.getCell('F1').alignment = { vertical: 'middle', horizontal: 'center' };
-
-    sheet1.getCell(1, 8+companyCount).value = '需求總量';
-    sheet1.getCell(1, 9+companyCount).value = '需求總量';
-    sheet1.getCell(1, 9+companyCount).font = { color: { argb: 'FF0070C0' }, bold: true };
-
-    const todayStr = new Date().toISOString().split('T')[0].replace(/-/g, '/');
-    sheet1.getCell(2, 8).value = todayStr;
-    sheet1.getCell(2, 8).alignment = { horizontal: 'center' };
-    if(companyCount > 1) sheet1.mergeCells(2, 8, 2, 7+companyCount);
-
-    const headers = ['項目', '型號', '單位', '品牌', 'NT', '數量', 'TOTAL NT$', ...companies, '加總', '總數'];
-    const headerRow = sheet1.addRow(headers);
-    headerRow.eachCell((cell, colNum) => {
-      cell.font = { name: '微軟正黑體', size: 11, bold: true };
-      cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      cell.border = borderAll;
-      if (colNum === 6 || colNum === 7) cell.fill = blueFill; else cell.fill = yellowFill;
-      if (colNum === 9+companyCount) cell.font = { color: { argb: 'FF0070C0' }, bold: true };
-    });
-
-    let rowIndex = 4, itemIndex = 1;
-    materialMap.forEach((mat) => {
-      const displayVendor = (mat.vendor && mat.vendor !== '未指定') ? `外購/${mat.vendor}` : (mat.vendor || '');
-      const unitPrice = priceMap.has(mat.name) ? priceMap.get(mat.name) : '';
-      const rowData = [itemIndex++, mat.name, mat.unit, displayVendor, unitPrice, '', ''];
-      companies.forEach(c => rowData.push(mat.companyTotals[c] || 0));
-      
-      const row = sheet1.addRow(rowData);
-      const firstCol = sheet1.getColumn(8).letter;
-      const lastCol = sheet1.getColumn(7 + companyCount).letter;
-      
-      row.getCell(6).value = { formula: `SUM(${firstCol}${rowIndex}:${lastCol}${rowIndex})`, result: 0 };
-      row.getCell(6).fill = blueFill;
-      row.getCell(7).value = { formula: `IF(ISNUMBER(E${rowIndex}), IF(E${rowIndex}=0, "-", E${rowIndex}*F${rowIndex}), "-")`, result: 0 };
-      row.getCell(7).fill = blueFill;
-      
-      const sumF = `SUM(${firstCol}${rowIndex}:${lastCol}${rowIndex})`;
-      row.getCell(8+companyCount).value = { formula: sumF, result: 0 };
-      row.getCell(9+companyCount).value = { formula: sumF, result: 0 };
-
-      row.eachCell((cell, colNum) => {
-        cell.border = borderAll; cell.font = { name: '微軟正黑體', size: 11 };
-        if (colNum === 1) cell.fill = greenFill; else if (colNum === 6 || colNum === 7) cell.fill = blueFill; 
-        else cell.alignment = { horizontal: colNum === 2 ? 'left' : 'center' };
-        if (colNum === 5 && mat.companyTotals[companies[0]] !== undefined) {
-          let t = 0; companies.forEach(c => t += mat.companyTotals[c]);
-          if (t === 0) cell.fill = redFill;
-        }
-      });
-      rowIndex++;
-    });
-
-    sheet1.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 9 + companyCount } };
-
-    const sheet2 = workbook.addWorksheet('需求原始明細');
-    sheet2.columns = [
-      { header: '訂單編號', key: 'orderId', width: 18 }, { header: '下單時間', key: 'orderDate', width: 18 },
-      { header: '申請人', key: 'reqUser', width: 25 }, { header: '申請工班', key: 'reqCompany', width: 15 },
-      { header: '地區', key: 'reqRegion', width: 10 }, { header: '廠商', key: 'vendor', width: 15 }, 
-      { header: '材料名稱與規格', key: 'materialName', width: 45 }, { header: '數量', key: 'quantity', width: 10 }, 
-      { header: '需求備註', key: 'remarks', width: 35 }, { header: '管理員附註', key: 'adminNote', width: 35 },
-      { header: '目前狀態', key: 'status', width: 12 }
-    ];
-    sheet2.getRow(1).font = { bold: true }; sheet2.getRow(1).fill = blueFill;
-    filteredData.forEach((order: any) => sheet2.addRow({ ...order, quantity: Number(order.quantity) }));
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    // 💡 核心修正：強制將 buffer 轉為 any，避開 Vercel 的嚴格型別誤判
-    return NextResponse.json({ status: 'success', fileContent: (buffer as any).toString('base64') });
-  } catch (error: any) { return NextResponse.json({ error: error.message }, { status: 500 }); }
+    }
+    const { rows } = await loadOrderSheet(sheets, users);
+    const all = groupOrders(rows);
+    const groups = scope === 'selected' ? all.filter((group) => requested.has(group.orderId)) : filterOrderGroups(all, filters).filter((group) => group.status === '審核中');
+    if (groups.length !== requested.size || groups.some((group) => !requested.has(group.orderId))) throw new AccessError('匯出範圍或狀態已變更，請重新整理並確認。', 409);
+    if (groups.some((group) => !group.consistent || !['審核中', '準備出貨', '已送達'].includes(group.status))) throw new AccessError('僅能匯出審核中、準備出貨或已送達的完整需求單。', 409);
+    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:AZ' });
+    const files = await buildVendorReports(groups.flatMap((group) => group.items), materials.data.values ?? []);
+    const archive = new JSZip();
+    files.forEach((file) => archive.file(file.filename, file.buffer));
+    const archiveBuffer = await archive.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const reexports = groups.filter((group) => group.status !== '審核中');
+    if (reexports.length) {
+      const latest = groupOrders((await loadOrderSheet(sheets)).rows);
+      for (const original of reexports) {
+        const fresh = latest.find((group) => group.orderId === original.orderId);
+        if (!fresh?.consistent || fresh.status !== original.status || JSON.stringify(fresh.items.map((item) => item.lineId).sort()) !== JSON.stringify(original.items.map((item) => item.lineId).sort())) throw new AccessError('重新匯出的需求單已變更，請重新整理後再試。', 409);
+      }
+    }
+    const advance = groups.filter((group) => group.status === '審核中');
+    const advancedIds = advance.map((group) => group.orderId);
+    if (advancedIds.length) {
+      const updated = await updateOrderStatuses(sheets, advancedIds, '準備出貨', account.name, '', expectedDate, '審核中', undefined, advance.flatMap((group) => group.items.map((item) => item.lineId)));
+      await notifyOrderProgress(updated.groups, updated.rows, users, '準備出貨', account.name, '', expectedDate);
+    }
+    const orderIds = groups.map((group) => group.orderId);
+    try {
+      const { logAudit } = await import('@/lib/audit');
+      await logAudit(account.email, '分廠商匯出報表', orderIds.join(', '), `共 ${groups.length} 張，轉準備出貨 ${advancedIds.length} 張，重新匯出 ${groups.length - advancedIds.length} 張`);
+    } catch (error) { console.error('匯出稽核紀錄失敗', error); }
+    return NextResponse.json({ status: 'success', orderIds, advancedIds, reexportedIds: orderIds.filter((id) => !advancedIds.includes(id)), archiveName: `高雄-材料需求_${taipeiDate().replace(/-/g, '')}.zip`, archiveContent: archiveBuffer.toString('base64'), files: files.map((file) => ({ vendor: file.vendor, filename: file.filename, fileContent: file.buffer.toString('base64') })) }, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch (error) {
+    if (error instanceof SyntaxError) return NextResponse.json({ error: '請求內容格式不正確。' }, { status: 400 });
+    return apiError(error, '報表產生失敗，請重新整理後再試。');
+  }
 }

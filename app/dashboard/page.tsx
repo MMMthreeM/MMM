@@ -1,153 +1,82 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useOrders } from '@/components/useOrders';
+import { useAccount } from '@/components/AppShell';
+import { filterOrderGroups, groupOrders, isReturnedOrder, orderPresentation, type OrderFilters } from '@/lib/order-view';
+import FilterPanel from '@/components/FilterPanel';
+import Pagination, { usePagination } from '@/components/Pagination';
+import BackToTop from '@/components/BackToTop';
 
-const getStatusStyle = (status: string, isReturned: boolean, isDraft: boolean) => {
-  if (isDraft) return 'status-draft';
-  if (isReturned) return 'status-returned';
-  switch (status) {
-    case '處理中': return 'status-processing';
-    case '審核中': return 'status-review';
-    case '準備出貨': return 'status-shipping';
-    case '已送達': return 'status-delivered';
-    default: return 'status-draft';
-  }
-};
-
-export default function Dashboard() {
-  const router = useRouter();
-  const { status, data: session } = useSession();
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchId, setSearchId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [statusFilter, setStatusFilter] = useState(''); 
-
-  useEffect(() => {
-    if (status === 'authenticated') {
-      fetch('/api/orders').then(res => res.json()).then(data => { if (data.data) setOrders(data.data); setLoading(false); });
-    } else if (status === 'unauthenticated') setLoading(false);
-  }, [status]);
-
-  const handleLoadToCart = (orderId: string, action: 'edit' | 'reorder') => router.push(`/?loadOrderId=${orderId}&action=${action}`);
-  const handleSubmitDraft = async (orderId: string) => {
-    if (!confirm(`確定送出草稿 ${orderId}？`)) return;
+type HistoryAction = { id: string; type: 'delete' | 'submit' };
+export default function HistoryPage() {
+  const { orders, loading, error, refresh } = useOrders();
+  const account = useAccount();
+  const [tab, setTab] = useState<'active' | 'archive' | 'draft'>('active');
+  const [filters, setFilters] = useState<OrderFilters>({});
+  const [action, setAction] = useState<HistoryAction | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [actionError, setActionError] = useState('');
+  const dialog = useRef<HTMLDialogElement>(null);
+  const groups = groupOrders(orders);
+  const invalidRange = Boolean(filters.startDate && filters.endDate && filters.startDate > filters.endDate);
+  const tabs = [
+    { id: 'active' as const, label: '進行中', matches: (status: string) => !['編輯中', '準備出貨', '已送達'].includes(status) },
+    { id: 'draft' as const, label: '草稿', matches: (status: string) => status === '編輯中' },
+    { id: 'archive' as const, label: '出貨與完成', matches: (status: string) => ['準備出貨', '已送達'].includes(status) },
+  ];
+  const tabGroups = groups.filter((group) => tabs.find((entry) => entry.id === tab)!.matches(group.status));
+  const priority = (group: (typeof groups)[number]) => !group.consistent ? -1 : isReturnedOrder(group) ? 0 : group.status === '處理中' ? 1 : 2;
+  const filtered = invalidRange ? [] : filterOrderGroups(tabGroups, filters).sort((a, b) => (tab === 'active' ? priority(a) - priority(b) : 0) || b.first.orderDate.localeCompare(a.first.orderDate));
+  const pagination = usePagination(filtered, JSON.stringify([tab, filters]));
+  const update = (key: keyof OrderFilters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
+  const open = (next: HistoryAction) => { setAction(next); setActionError(''); dialog.current?.showModal(); };
+  const execute = async () => {
+    if (!action || busy) return;
+    setBusy(true); setActionError('');
     try {
-      const res = await fetch('/api/orders/edit-item', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, newStatus: '處理中' }) });
-      if (res.ok) { alert('送出成功'); setOrders(orders.map(o => o.orderId === orderId ? { ...o, status: '處理中', draftName: '' } : o)); }
-    } catch (err) { alert('網路錯誤'); }
+      const response = await fetch(action.type === 'delete' ? '/api/orders/delete-item' : '/api/orders/edit-item', {
+        method: action.type === 'delete' ? 'DELETE' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action.type === 'delete' ? { orderId: action.id, deleteType: 'order' } : { orderId: action.id, newStatus: '處理中' }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || '操作失敗，請稍後再試。');
+      setFeedback(action.type === 'delete' ? '需求單已刪除。' : '草稿已正式送出。');
+      dialog.current?.close(); setAction(null); await refresh();
+    } catch (reason) { setActionError(reason instanceof Error ? reason.message : '連線失敗，請再試一次。'); }
+    finally { setBusy(false); }
   };
-  const handleDelete = async (orderId: string, deleteType: 'single' | 'order', materialName?: string) => {
-    let actualDeleteType = deleteType;
-    let msg = deleteType === 'single' ? (orders.filter(o => o.orderId === orderId).length === 1 ? `此為該訂單最後一項，將強制刪除整筆訂單，確定？` : `確定刪除 ${materialName}？`) : `確定刪除整筆訂單 ${orderId}？`;
-    if (deleteType === 'single' && orders.filter(o => o.orderId === orderId).length === 1) actualDeleteType = 'order';
-    if (!confirm(msg)) return;
-    try {
-      const res = await fetch('/api/orders/delete-item', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, materialName, deleteType: actualDeleteType }) });
-      if (res.ok) {
-        alert('刪除成功');
-        setOrders(actualDeleteType === 'order' ? orders.filter(o => o.orderId !== orderId) : orders.filter(o => !(o.orderId === orderId && o.materialName === materialName)));
-      }
-    } catch (err) {}
-  };
-
-  if (status === 'loading' || loading) return <div className="page-frame text-center text-[var(--muted)]">正在整理您的需求單…</div>;
-
-  const filteredOrders = orders.filter(o => {
-    if (searchId && !o.orderId.toLowerCase().includes(searchId.toLowerCase())) return false;
-    if (statusFilter && o.status !== statusFilter) return false;
-    const oDate = o.orderDate?.split(' ')[0] || '';
-    if (startDate && oDate < startDate) return false;
-    if (endDate && oDate > endDate) return false;
-    return true;
-  });
-
-  const groupedOrders = filteredOrders.reduce((acc, o) => {
-    if (!acc[o.orderId]) acc[o.orderId] = { orderDate: o.orderDate, reqUser: o.reqUser, status: o.status, adminNote: o.adminNote, draftName: o.draftName, items: [] };
-    acc[o.orderId].items.push(o);
-    if (o.adminNote) acc[o.orderId].adminNote = o.adminNote;
-    if (o.draftName) acc[o.orderId].draftName = o.draftName;
-    return acc;
-  }, {} as Record<string, any>);
-
-  return (
-    <main className="app-shell"><div className="page-frame">
-      <div className="mb-7 flex flex-col items-start justify-between gap-4 md:flex-row md:items-end">
-        <div><Link href="/" className="mb-3 inline-block text-sm font-bold text-[var(--delta-blue-strong)] hover:underline">← 返回建立需求</Link><h1 className="page-title">歷史需求單</h1><p className="page-subtitle">查看目前進度、修改可編輯單據，或重用既有需求。</p></div>
-        <Link href="/" className="btn btn-primary">建立新單</Link>
-      </div>
-      
-      <section className="surface mb-6 grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr]">
-        <div><label className="form-label">搜尋單號</label><input type="text" placeholder="輸入單號" className="form-control" value={searchId} onChange={e => setSearchId(e.target.value)} /></div>
-        <div><label className="form-label">狀態</label>
-          <select className="form-control" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-            <option value="">全部</option><option value="編輯中">草稿</option><option value="處理中">處理中</option><option value="審核中">審核中</option><option value="準備出貨">準備出貨</option><option value="已送達">已送達</option>
-          </select>
-        </div>
-        <div><label className="form-label">申請日期</label><div className="flex items-center gap-2"><input type="date" className="form-control" value={startDate} onChange={e => setStartDate(e.target.value)} /><span className="text-sm text-[var(--muted)]">至</span><input type="date" className="form-control" value={endDate} onChange={e => setEndDate(e.target.value)} /></div></div>
-      </section>
-
-      <div className="space-y-8">
-        {Object.keys(groupedOrders).length === 0 ? <div className="surface p-12 text-center text-[var(--muted)]">目前沒有符合條件的需求單。</div> : 
-          Object.keys(groupedOrders).map(orderId => {
-            const group = groupedOrders[orderId];
-            const isEditable = group.status === '編輯中' || group.status === '處理中';
-            const isReturned = group.adminNote && group.status === '處理中' && !group.adminNote.includes('[已重送]');
-            const statusStyle = getStatusStyle(group.status, isReturned, group.status === '編輯中');
-            
-            return (
-              <section key={orderId} className="surface overflow-hidden">
-                <div className="flex flex-col items-start justify-between gap-4 border-b border-[var(--line)] bg-[#fbfdfe] p-4 md:flex-row md:items-center md:p-5">
-                  <div className="flex flex-col gap-2 w-full md:w-auto">
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <span className="text-lg font-bold text-[var(--ink)]">{orderId}</span>
-                      <span className={`status ${statusStyle}`}>
-                        {group.status === '編輯中' ? `草稿: ${group.draftName || '未命名'}` : isReturned ? '退回需修改' : group.status}
-                      </span>
-                    </div>
-                    <div className="text-sm text-[var(--muted)]">{group.orderDate} · 申請人：{group.reqUser}</div>
-                  </div>
-                  <div className="flex flex-wrap gap-3 w-full md:w-auto mt-2 md:mt-0">
-                    <button onClick={() => handleLoadToCart(orderId, isEditable ? 'edit' : 'reorder')} className="btn btn-secondary">
-                      {isEditable ? '修改單據' : '整單重訂'}
-                    </button>
-                    {group.status === '編輯中' && <button onClick={() => handleSubmitDraft(orderId)} className="btn btn-primary">正式送出</button>}
-                    {isEditable && <button onClick={() => handleDelete(orderId, 'order')} className="btn btn-danger">刪除單據</button>}
-                  </div>
-                </div>
-                
-                <div className="p-0">
-                  <table className="data-table w-full text-left text-sm">
-                    <tbody className="divide-y divide-gray-200">
-                      {group.items.map((o: any, idx: number) => (
-                        <tr key={idx}>
-                          <td className="w-1/3 font-bold text-[var(--ink)]">{o.materialName}</td>
-                          <td className="w-1/6 text-lg font-bold text-[var(--ink)]">{o.quantity} <span className="text-sm font-medium text-[var(--muted)]">{o.unit}</span></td>
-                          <td className="w-1/3 text-[var(--muted)]">
-                            <span className={!o.remarks ? 'text-[#94a4b0]' : ''}>{o.remarks || '無備註'}</span>
-                            {o.adminNote && (
-                              <div className={`mt-2 rounded-md p-2 text-sm font-bold ${o.adminNote.includes('[已重送]') ? 'bg-[#e4f4fc] text-[#075a92]' : 'bg-[#fff0f0] text-[#a32e33]'}`}>
-                                {!o.adminNote.includes('[已重送]') && '退回原因: '}
-                                {o.adminNote}
-                              </div>
-                            )}
-                          </td>
-                          <td className="w-1/6 text-right">
-                            {isEditable && <button onClick={() => handleDelete(orderId, 'single', o.materialName)} className="text-xs font-bold text-[var(--danger)] hover:underline">移除</button>}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            );
-          })
-        }
-      </div>
-    </div></main>
-  );
+  return <main className="page-frame">
+    <div className="page-heading"><div><h1 className="page-title">歷史需求單</h1><p className="page-subtitle">{account?.company ? `${account.company}工班共用的需求單與草稿。` : '查看所屬工班的需求單與草稿。'}審核中的單據已鎖定，無法修改。</p></div><Link className="btn btn-primary" href="/request">建立訂單</Link></div>
+    <div className="history-tabs" role="tablist" aria-label="需求單類別">{tabs.map((entry) => <button key={entry.id} role="tab" id={`${entry.id}-tab`} aria-controls="history-panel" aria-selected={tab === entry.id} onClick={() => { setTab(entry.id); setFilters({}); }}>{entry.label}（{groups.filter((group) => entry.matches(group.status)).length}）</button>)}</div>
+    {tab === 'active' && <div className="history-status-filters" role="group" aria-label="進行中狀態">{['', '退回待修改', '待審核', '審核中'].map((status) => <button key={status} className="btn btn-secondary" aria-pressed={(filters.status || '') === status} onClick={() => update('status', status)}>{status || '全部進行中'} <span>{status ? tabGroups.filter((group) => orderPresentation(group).label === status).length : tabGroups.length}</span></button>)}</div>}
+    <p className="mb-5 text-sm text-[var(--muted)]">{tab === 'active' ? '優先列出退回待修改的需求，其次為待審核、審核中。準備出貨與已送達請至「出貨與完成」查看。' : tab === 'draft' ? '尚未送出的工班草稿，可繼續修改或正式送出。' : '查看準備出貨與已送達的單據，也可以整單重訂。'}</p>
+    {feedback && <p role="status" className="feedback-success mb-5">{feedback}</p>}
+    {error && <p role="alert" className="feedback-error mb-5">{error}<button className="ml-3 underline" onClick={() => void refresh()}>重新載入</button></p>}
+    <FilterPanel count={Object.values(filters).filter(Boolean).length}><div className="filter-grid">
+      <label><span className="form-label">搜尋單號</span><input className="form-control" value={filters.search || ''} onChange={(event) => update('search', event.target.value)} placeholder="輸入單號" /></label>
+      {tab === 'archive' && <label><span className="form-label">狀態</span><select className="form-control" value={filters.status || ''} onChange={(event) => update('status', event.target.value)}><option value="">全部出貨與完成</option>{['準備出貨', '已送達'].map((value) => <option key={value}>{value}</option>)}</select></label>}
+      <label><span className="form-label">開始日期</span><input type="date" className="form-control" value={filters.startDate || ''} max={filters.endDate || undefined} onChange={(event) => update('startDate', event.target.value)} /></label>
+      <label><span className="form-label">結束日期</span><input type="date" className="form-control" value={filters.endDate || ''} min={filters.startDate || undefined} onChange={(event) => update('endDate', event.target.value)} /></label>
+      <button className="btn btn-quiet self-end" onClick={() => setFilters({})}>清除篩選</button>
+    </div></FilterPanel>
+    {invalidRange && <p className="feedback-error mb-5" role="alert">開始日期不能晚於結束日期。</p>}
+    <div id="history-panel" role="tabpanel" aria-labelledby={`${tab}-tab`}>
+      {loading ? <p role="status">正在整理工班需求單…</p> : !filtered.length ? <section className="surface empty-state">{tab === 'draft' ? '目前沒有符合條件的草稿。' : '目前沒有符合條件的正式需求單。'}</section> : <div className="space-y-6">{pagination.items.map((group) => {
+        const editable = group.consistent && ['編輯中', '處理中'].includes(group.status);
+        const presentation = orderPresentation(group);
+        return <section className="surface order-group" key={group.orderId}>
+          <header className="order-group-heading"><div className="min-w-0 flex-1"><h2 className="order-number font-bold">{group.orderId}</h2><p className="mt-1 text-sm text-[var(--muted)]">{group.first.orderDate} · {group.first.reqUser} · {group.items.length} 筆材料</p>{group.status === '編輯中' && <p className="mt-2 font-semibold">{group.first.draftName || '未命名草稿'}</p>}</div><span className={`status status-${presentation.tone}`}>{presentation.label}</span></header>
+          {group.first.returnNote && <p className="order-return-note">{group.first.returnNote}</p>}
+          <ul>{group.items.map((item, index) => <li className="order-item" key={index}><div><p className="font-bold leading-6">{item.materialName}</p><p className="mt-1 text-sm text-[var(--muted)]">{item.vendor || '未指定廠商'}</p></div><p className="quantity-value">{item.quantity.toLocaleString('zh-TW')} <span>{item.unit}</span></p><div className="break-words text-sm leading-6 text-[var(--muted)]"><p>{item.remarks || '無備註'}</p>{item.adminNote && <p className="mt-2 text-[var(--danger)]">{item.adminNote}</p>}</div></li>)}</ul>
+          <footer className="flex flex-wrap gap-3 border-t border-[var(--line)] p-4"><Link className="btn btn-secondary" href={`/request?loadOrderId=${encodeURIComponent(group.orderId)}&action=${editable ? 'edit' : 'reorder'}`}>{editable ? '修改單據' : '整單重訂'}</Link>{group.consistent && group.status === '編輯中' && <button className="btn btn-primary" disabled={busy} onClick={() => open({ id: group.orderId, type: 'submit' })}>正式送出</button>}{editable && <button className="btn btn-danger" disabled={busy} onClick={() => open({ id: group.orderId, type: 'delete' })}>刪除單據</button>}{group.first.expectedDate && <p className="self-center text-sm text-[var(--muted)]">預計送達：{group.first.expectedDate}</p>}</footer>
+        </section>;
+      })}</div>}
+    </div>
+    <Pagination {...pagination} label="歷史需求單" targetId="history-panel" /><BackToTop />
+    <dialog ref={dialog} className="action-dialog" aria-labelledby="history-action-title" onCancel={(event) => { if (busy) event.preventDefault(); else setAction(null); }}>
+      <form onSubmit={(event) => { event.preventDefault(); void execute(); }}><h2 className="section-title" id="history-action-title">{action?.type === 'delete' ? '確認刪除需求單' : '確認正式送出草稿'}</h2><p className="mt-3 break-words text-sm leading-7">{action?.id}{action?.type === 'delete' ? ' 的全部材料都會刪除。' : ' 的全部材料將送至管理者審核。'}</p>{actionError && <p role="alert" className="feedback-error mt-4">{actionError}</p>}<div className="mt-6 flex flex-wrap justify-end gap-3"><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { dialog.current?.close(); setAction(null); }}>取消</button><button type="submit" className={`btn ${action?.type === 'delete' ? 'btn-danger' : 'btn-primary'}`} disabled={busy}>{busy ? '處理中…' : action?.type === 'delete' ? '確認刪除' : '確認送出'}</button></div></form>
+    </dialog>
+  </main>;
 }

@@ -1,204 +1,103 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import SearchSelect from '@/components/SearchSelect';
+import { isUserEditableStatus, matchMaterial } from '@/lib/order-domain';
+
+type Material = { id: string; name: string; tags: string[]; vendor: string; unit: string; minQty: number; stepQty: number };
+type CartItem = { materialName: string; quantity: number; unit: string; vendor: string; remarks: string; originalId: string };
 
 export default function OrderForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const loadOrderId = searchParams?.get('loadOrderId');
-  const action = searchParams?.get('action'); 
-  
-  const processedOrderId = useRef<string | null>(null);
-  
-  const [materials, setMaterials] = useState<any[]>([]);
-  const [search, setSearch] = useState('');
+  const params = useSearchParams();
+  const processed = useRef<string | null>(null);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedId, setSelectedId] = useState('');
+  const [vendor, setVendor] = useState('');
   const [customName, setCustomName] = useState('');
-  const [quantity, setQuantity] = useState(0);
+  const [quantity, setQuantity] = useState(1);
   const [remarks, setRemarks] = useState('');
-  const [cart, setCart] = useState<any[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [draftName, setDraftName] = useState('');
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [complete, setComplete] = useState<{ orderId: string; message: string } | null>(null);
+  const selected = materials.find((material) => material.id === selectedId);
+  const vendors = [...new Set(materials.map((material) => material.vendor).filter(Boolean))];
   useEffect(() => {
-    fetch('/api/materials').then(res => res.json()).then(data => { if (data.data) setMaterials(data.data); });
+    fetch('/api/materials').then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error); setMaterials(data.data ?? []); setCatalogLoaded(true); }).catch(() => setError('材料庫暫時無法載入，請重新整理後再試。'));
   }, []);
-
   useEffect(() => {
-    if (loadOrderId && processedOrderId.current !== loadOrderId) {
-      processedOrderId.current = loadOrderId; 
-      fetch('/api/orders').then(res => res.json()).then(data => {
-        if (data.data) {
-          const targetOrders = data.data.filter((o: any) => o.orderId === loadOrderId);
-          if (targetOrders.length > 0) {
-            setCart(targetOrders.map((o: any) => ({
-              materialName: o.materialName, quantity: Number(o.quantity), 
-              unit: o.unit, vendor: o.vendor, remarks: o.remarks, originalId: o.materialName 
-            })));
-            if (action === 'edit') {
-              setEditingOrderId(loadOrderId); 
-              alert('訂單已載入。目前為修改模式，送出將覆蓋原單。');
-            } else {
-              setEditingOrderId(null); 
-              alert('歷史清單已帶入。目前為新單重訂模式，送出將產生全新單號。');
-            }
-            router.replace('/'); 
-          }
-        }
-      });
-    }
-  }, [loadOrderId, action, router]);
-
-  const filteredMaterials = materials.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.tags.some((t: string) => t.toLowerCase().includes(search.toLowerCase())));
-  const selectedMaterial = materials.find(m => m.id === selectedId);
-
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = e.target.value; setSelectedId(id);
-    if (id === 'other') setQuantity(1); else { const mat = materials.find(m => m.id === id); if (mat) setQuantity(mat.minQty); }
+    const id = params.get('loadOrderId');
+    const action = params.get('action');
+    if (!id || !catalogLoaded || processed.current === id) return;
+    let active = true;
+    fetch('/api/orders').then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '無法載入需求單。');
+      if (!active) return;
+      const rows = (data.data as Array<CartItem & { orderId: string; draftName: string; status: string }>).filter((row) => row.orderId === id);
+      if (!rows.length) throw new Error('找不到可載入的需求單。');
+      if (action === 'edit' && rows.some((row) => !isUserEditableStatus(row.status))) throw new Error('此單已進入審核，無法修改。可從歷史需求單選擇整單重訂。');
+      setCart(rows.map((row) => ({ materialName: row.materialName, quantity: Number(row.quantity), unit: row.unit, vendor: row.vendor, remarks: row.remarks ?? '', originalId: matchMaterial(materials, row)?.id ?? 'other' })));
+      setEditingOrderId(action === 'edit' ? id : null); setDraftName(action === 'edit' ? rows[0].draftName || '' : '');
+      setMessage(action === 'edit' ? '已載入需求單，儲存後才會更新原單。' : '已帶入歷史材料，送出後會建立新單。');
+      setStep(2); processed.current = id; router.replace('/request');
+    }).catch((reason) => { if (active) setError(reason.message || '載入失敗，請稍後再試。'); });
+    return () => { active = false; };
+  }, [catalogLoaded, materials, params, router]);
+  const select = (id: string) => { setSelectedId(id); setQuantity(id === 'other' ? 1 : materials.find((entry) => entry.id === id)?.minQty ?? 1); setError(''); };
+  const reset = () => { setSelectedId(''); setCustomName(''); setQuantity(1); setRemarks(''); setEditIndex(null); };
+  const add = () => {
+    if (!selectedId) return setError('請先選擇材料。');
+    if (selectedId === 'other' && !customName.trim()) return setError('請填寫自訂材料名稱。');
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) return setError('數量必須是正整數。');
+    if (selected && (quantity < selected.minQty || quantity % selected.stepQty !== 0)) return setError(`數量須至少 ${selected.minQty}，且為 ${selected.stepQty} 的倍數。`);
+    const item = { materialName: selectedId === 'other' ? customName.trim() : selected!.name, quantity, unit: selectedId === 'other' ? '式' : selected!.unit, vendor: selectedId === 'other' ? '' : selected!.vendor, remarks: remarks.trim(), originalId: selectedId };
+    setCart((items) => editIndex === null ? [...items, item] : items.map((entry, index) => index === editIndex ? item : entry));
+    setMessage(editIndex === null ? `已加入「${item.materialName}」，可以繼續新增或確認送出。` : '材料修改已儲存到待送出清單。');
+    setError(''); reset();
   };
-
-  const adjustQuantity = (amount: number) => {
-    const step = selectedMaterial?.stepQty || 1;
-    const min = selectedMaterial?.minQty || 1;
-    setQuantity(prev => Math.max(min, prev + (amount * step)));
-  };
-
-  const handleAddToCart = () => {
-    if (!selectedId) return alert("請先選擇材料");
-    if (selectedId === 'other' && !customName.trim()) return alert("請填寫材料名稱");
-    
-    const numQty = Number(quantity);
-    if (numQty <= 0 || !Number.isInteger(numQty)) return alert("數量必須是大於 0 的整數");
-    
-    if (selectedId !== 'other' && selectedMaterial) {
-      const step = selectedMaterial.stepQty || 1, min = selectedMaterial.minQty || 1;
-      if (numQty < min) return alert(`此材料的最低數量為 ${min}`);
-      if (numQty % step !== 0) return alert(`數量必須是 ${step} 的倍數`);
-    }
-    const newItem = {
-      materialName: selectedId === 'other' ? customName : selectedMaterial?.name,
-      quantity: numQty, unit: selectedId === 'other' ? '式' : selectedMaterial?.unit, vendor: selectedId === 'other' ? '' : selectedMaterial?.vendor, remarks, originalId: selectedId
-    };
-    setCart([...cart, newItem]);
-    setSelectedId(''); setCustomName(''); setQuantity(0); setRemarks(''); setSearch('');
-  };
-
-  const handleEditItem = (index: number) => {
-    const item = cart[index];
-    const matMatch = materials.find(m => m.name === item.materialName);
-    setSelectedId(matMatch ? matMatch.id : 'other');
-    if (!matMatch) setCustomName(item.materialName);
-    setQuantity(Number(item.quantity)); 
-    setRemarks(item.remarks || '');
-    setCart(cart.filter((_, i) => i !== index));
-  };
-
-  const handleSubmit = async (status: string) => {
-    if (cart.length === 0) return alert('清單為空');
-    if (isSubmitting) return; 
-    let draftName = '';
-    if (status === '編輯中') {
-      const promptVal = prompt('請為草稿命名 (例如：高鐵A區水電預備)：');
-      if (promptVal === null) return; 
-      draftName = promptVal || '未命名草稿';
-    }
-    setIsSubmitting(true);
+  const edit = (index: number) => { const item = cart[index]; select(item.originalId); setCustomName(item.originalId === 'other' ? item.materialName : ''); setQuantity(item.quantity); setRemarks(item.remarks); setEditIndex(index); setStep(1); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const submit = async (status: '編輯中' | '處理中') => {
+    if (submitting) return;
+    if (!cart.length) return setError('請至少加入一項材料。');
+    if (editIndex !== null) return setError('請先儲存或取消正在修改的材料。');
+    if (status === '編輯中' && !draftName.trim()) return setError('請為草稿填寫名稱。');
+    setSubmitting(true); setError('');
     try {
-      const response = await fetch('/api/orders', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart, status, draftName, existingOrderId: editingOrderId }) 
-      });
-      const result = await response.json();
-      if (response.ok) { 
-        alert(`${result.message}\n單號: ${result.orderId}`); 
-        setCart([]); setEditingOrderId(null);
-      } else alert('發生錯誤: ' + result.error);
-    } catch (error) { alert('網路連線錯誤'); } finally { setIsSubmitting(false); }
+      const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: cart, status, draftName: draftName.trim(), existingOrderId: editingOrderId }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '送出失敗。');
+      setComplete({ orderId: data.orderId, message: data.message }); setCart([]); setEditingOrderId(null); setDraftName('');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : '網路連線錯誤。'); }
+    finally { setSubmitting(false); }
   };
-
-  return (
-    <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      
-      {/* 左側：材料選取 */}
-      <section className="surface p-5 sm:p-7">
-        <div className="mb-6 border-b border-[var(--line)] pb-4"><h2 className="section-title">選擇材料</h2><p className="mt-1 text-sm text-[var(--muted)]">從材料庫搜尋，或新增臨時需求品項。</p></div>
-        <div className="space-y-5">
-          <div>
-            <label className="form-label">搜尋材料</label>
-            <input type="text" placeholder="材料名稱或標籤" className="form-control mb-2" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <select className="form-control" value={selectedId} onChange={handleSelectChange}>
-              <option value="" disabled>請選擇材料...</option>
-              {filteredMaterials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              <option value="other">其他 (自填)</option>
-            </select>
-          </div>
-          
-          {selectedId === 'other' && (
-            <div><label className="form-label">自訂材料名稱</label><input type="text" className="form-control" value={customName} onChange={(e) => setCustomName(e.target.value)} /></div>
-          )}
-          
-          <div>
-            <div className="flex justify-between items-end mb-2">
-              <label className="form-label mb-0">需求數量</label>
-              {selectedMaterial && <span className="text-xs text-[var(--muted)]">最小 {selectedMaterial.minQty} · 級距 {selectedMaterial.stepQty}</span>}
-            </div>
-            <div className="flex h-11">
-              <button type="button" onClick={() => adjustQuantity(-1)} className="w-12 rounded-l-lg border border-[#b9c9d4] bg-[#f4f8fa] text-xl font-bold text-[var(--ink)] hover:bg-[#eaf5fb]">−</button>
-              <input type="number" className="form-control rounded-none border-x-0 text-center text-lg font-bold" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
-              <button type="button" onClick={() => adjustQuantity(1)} className="w-12 rounded-r-lg border border-[#b9c9d4] bg-[#f4f8fa] text-xl font-bold text-[var(--ink)] hover:bg-[#eaf5fb]">＋</button>
-            </div>
-          </div>
-
-          <div><label className="form-label">附加備註</label><textarea className="form-control h-24 resize-none" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="規格、長度或特殊要求" /></div>
-          
-          <button onClick={handleAddToCart} type="button" className="btn btn-primary w-full">
-            加入清單
-          </button>
-        </div>
-      </section>
-
-      {/* 右側：購物車區 */}
-      <section className="surface flex min-h-[520px] flex-col p-5 sm:p-7">
-        <div className="mb-6 flex items-end justify-between border-b border-[var(--line)] pb-4">
-          <div><h2 className="section-title">待送出清單 <span className="text-[var(--delta-blue)]">({cart.length})</span></h2><p className="mt-1 text-sm text-[var(--muted)]">確認各項需求後再儲存或送出。</p></div>
-          {editingOrderId && <span className="status status-processing">修改原單</span>}
-        </div>
-        
-        <div className="flex-1 mb-8 max-h-[60vh] overflow-y-auto">
-          {cart.length === 0 ? (
-            <div className="flex h-full min-h-52 items-center justify-center rounded-xl border border-dashed border-[#cbd9e1] bg-[#f8fbfc] px-6 text-center text-sm leading-6 text-[var(--muted)]">
-              尚未加入材料。從左側選擇材料並加入清單。
-            </div>
-          ) : (
-            <ul className="space-y-4">
-              {cart.map((item, idx) => (
-                <li key={idx} className="relative rounded-xl border border-[var(--line)] bg-white p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="pr-16 font-bold text-[var(--ink)]">{item.materialName}</div>
-                    <div className="flex gap-2 absolute top-4 right-4">
-                      <button onClick={() => handleEditItem(idx)} className="text-sm font-bold text-[var(--delta-blue-strong)] hover:underline">編輯</button>
-                      <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-sm font-bold text-[var(--danger)] hover:underline">移除</button>
-                    </div>
-                  </div>
-                  <div className="text-xl font-bold text-[var(--ink)]">
-                    {item.quantity} <span className="text-sm font-medium text-[var(--muted)]">{item.unit}</span>
-                  </div>
-                  {item.remarks && <div className="mt-3 border-t border-[#e5edf1] pt-3 text-sm text-[var(--muted)]">備註：{item.remarks}</div>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-4 mt-auto">
-          <button onClick={() => handleSubmit('編輯中')} disabled={cart.length===0 || isSubmitting} className="btn btn-secondary flex-1 disabled:cursor-not-allowed disabled:opacity-50">
-            存為草稿
-          </button>
-          <button onClick={() => handleSubmit('處理中')} disabled={cart.length===0 || isSubmitting} className="btn btn-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50">
-            正式送出
-          </button>
-        </div>
-      </section>
-    </div>
-  );
+  if (complete) return <section className="surface mx-auto max-w-xl p-7 text-center sm:p-9"><svg className="mx-auto text-[var(--delta-green)]" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="m7 12 3 3 7-7" /></svg><h2 className="mt-5 text-2xl font-bold">{complete.message}</h2><p className="mt-2 text-sm text-[var(--muted)]">單號：<strong>{complete.orderId}</strong></p><div className="mt-7 grid gap-3 sm:grid-cols-2"><button className="btn btn-primary" onClick={() => { setComplete(null); setStep(1); }}>繼續建立需求</button><button className="btn btn-secondary" onClick={() => router.push('/dashboard')}>查看歷史需求單</button></div></section>;
+  return <div className="request-flow">
+    <ol className="request-steps" aria-label="建立需求步驟">{['選擇材料', '確認並送出'].map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}</ol>
+    {message && <p className="feedback-success mb-5" role="status">{message}</p>}{error && <p className="feedback-error mb-5" role="alert">{error}</p>}
+    {step === 1 ? <div className="request-compose"><section className="surface p-5 sm:p-7"><h2 className="section-title">{editIndex === null ? '選擇材料' : '修改清單材料'}</h2><p className="mt-1 text-sm leading-6 text-[var(--muted)]">用規格、名稱或標籤搜尋，每次顯示 8 筆結果。</p>
+      <div className="mt-6 space-y-5">
+        <label><span className="form-label">廠商（選填，先縮小材料範圍）</span><select className="form-control" aria-label="材料廠商" value={vendor} onChange={(event) => setVendor(event.target.value)}><option value="">全部廠商</option>{vendors.map((name) => <option key={name}>{name}</option>)}</select></label>
+        <SearchSelect label="搜尋並選擇材料" value={selectedId} options={materials.filter((material) => !vendor || material.vendor === vendor || material.id === selectedId).map((material) => ({ value: material.id, label: material.name, detail: `${material.vendor || '未指定廠商'} · ${material.unit}`, keywords: material.tags.join(' ') }))} onChange={select} emptyLabel="" placeholder={catalogLoaded ? '例如：1.25 黑色，或輸入料件名稱' : '正在載入材料…'} disabled={!catalogLoaded} />
+        <button type="button" className="btn btn-quiet px-0" onClick={() => select('other')}>找不到材料？改用自填材料</button>
+        {selectedId === 'other' && <label className="block"><span className="form-label">自填材料名稱</span><input className="form-control" aria-label="自填材料名稱" value={customName} onChange={(event) => setCustomName(event.target.value)} maxLength={200} /></label>}
+        <div><label className="form-label" htmlFor="request-quantity">需求數量{selected ? `（${selected.unit}）` : ''}</label><div className="quantity-stepper"><button type="button" aria-label="減少數量" disabled={submitting} onClick={() => setQuantity((value) => Math.max(selected?.minQty ?? 1, value - (selected?.stepQty ?? 1)))}>−</button><input id="request-quantity" inputMode="numeric" value={quantity || ''} onChange={(event) => setQuantity(Number(event.target.value))} /><button type="button" aria-label="增加數量" onClick={() => setQuantity((value) => value + (selected?.stepQty ?? 1))}>＋</button></div>{selected && <p className="mt-2 text-xs text-[var(--muted)]">最少 {selected.minQty}，每次增加 {selected.stepQty} {selected.unit}。</p>}</div>
+        <label className="block"><span className="form-label">附加備註（選填）</span><textarea className="form-control h-24 resize-y" aria-label="附加備註" value={remarks} onChange={(event) => setRemarks(event.target.value)} maxLength={500} placeholder="規格、長度或特殊要求" /></label>
+        <div className="flex flex-wrap gap-3"><button type="button" className="btn btn-primary flex-1" onClick={add}>{editIndex === null ? '加入待送出清單' : '儲存材料修改'}</button>{editIndex !== null && <button type="button" className="btn btn-secondary" onClick={reset}>取消修改</button>}</div>
+      </div></section>
+      <aside className="request-cart surface p-5 sm:p-6"><h2 className="section-title">待送出清單 <span className="text-base text-[var(--muted)]">({cart.length})</span></h2>{!cart.length ? <p className="mt-4 text-sm leading-7 text-[var(--muted)]">加入材料後會顯示在這裡。數量與備註可在送出前確認。</p> : <><ul className="mt-4 divide-y divide-[var(--line)]">{cart.slice(-5).map((item, index) => <li className="py-3" key={index}><p className="text-sm font-bold leading-6">{item.materialName}</p><p className="text-sm text-[var(--muted)]">{item.quantity} {item.unit}</p></li>)}</ul>{cart.length > 5 && <p className="mt-2 text-xs text-[var(--muted)]">顯示最近 5 筆；確認頁可查看完整清單。</p>}<button className="btn btn-primary mt-5 w-full" disabled={editIndex !== null} onClick={() => setStep(2)}>確認清單並送出（{cart.length}）</button></>}</aside></div>
+      : <section className="surface request-confirm p-5 sm:p-7"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="section-title">確認待送出清單</h2><p className="mt-1 text-sm text-[var(--muted)]">共 {cart.length} 筆材料{editingOrderId ? `，更新單號：${editingOrderId}` : ''}。</p></div><button className="btn btn-secondary" disabled={submitting} onClick={() => setStep(1)}>新增材料</button></div>
+        <ul className="mt-5 divide-y divide-[var(--line)]">{cart.map((item, index) => <li className="cart-line" key={index}><div className="min-w-0"><p className="break-words font-bold leading-6">{item.materialName}</p><p className="mt-1 break-words text-sm leading-6 text-[var(--muted)]">{item.quantity} {item.unit}{item.remarks ? ` · ${item.remarks}` : ''}</p></div><div className="cart-line-actions"><button disabled={submitting} onClick={() => edit(index)}>修改</button><button disabled={submitting} className="text-[var(--danger)]" onClick={() => setCart((items) => items.filter((_, itemIndex) => itemIndex !== index))}>移除</button></div></li>)}</ul>
+        <label className="mt-6 block"><span className="form-label">草稿名稱（僅暫存時必填）</span><input className="form-control" aria-label="草稿名稱" value={draftName} disabled={submitting} onChange={(event) => setDraftName(event.target.value)} maxLength={100} placeholder="例如：高鐵 A 區水電預備" /></label>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2"><button className="btn btn-secondary" disabled={submitting || !cart.length} onClick={() => void submit('編輯中')}>儲存草稿</button><button className="btn btn-primary" disabled={submitting || !cart.length} onClick={() => void submit('處理中')}>{submitting ? '送出中…' : editingOrderId ? '更新並重新送出' : '正式送出'}</button></div></section>}
+    {cart.length > 0 && step === 1 && <div className="mobile-cart-bar"><button className="btn btn-primary w-full" disabled={editIndex !== null} onClick={() => setStep(2)}>確認清單並送出（{cart.length}）</button></div>}
+  </div>;
 }

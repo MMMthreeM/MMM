@@ -34,7 +34,7 @@ export default function ReportIssueButton() {
       } else {
         alert('❌ 傳送失敗，請稍後再試。');
       }
-    } catch (error) {
+    } catch {
       alert('❌ 發生錯誤，請稍後再試。');
     } finally {
       setIsSubmitting(false);
@@ -46,7 +46,7 @@ export default function ReportIssueButton() {
       {/* 💡 右下角懸浮按鈕 */}
       <button 
         onClick={() => setIsOpen(true)} 
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-[#163047] px-4 py-3 text-white shadow-[0_8px_20px_rgba(22,48,71,.24)] transition-colors hover:bg-[#0c2437]"
+        className="report-issue-trigger fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-[#163047] px-4 py-3 text-white shadow-[0_8px_20px_rgba(22,48,71,.24)] transition-colors hover:bg-[#0c2437]"
         title="回報系統問題"
       >
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getGoogleSheets } from '@/lib/google-sheets';
+import { apiError, requireAccount } from '@/lib/access';
 
 export async function GET() {
   try {
-    const sheets = await getGoogleSheets();
+    const { sheets } = await requireAccount();
     const sheetId = process.env.GOOGLE_SHEET_ID;
 
     const response = await sheets.spreadsheets.values.get({
@@ -19,16 +19,14 @@ export async function GET() {
     // 略過第一列標題，將資料轉換為物件陣列
     const materials = rows.slice(1).map(row => ({
       id: row[0],
-      name: row[1],
+      name: String(row[1] ?? '').trim(),
       tags: row[2]?.split(',').map((t: string) => t.trim()) || [],
-      vendor: row[3],
-      unit: row[4],
+      vendor: String(row[3] ?? '').trim(),
+      unit: String(row[4] ?? '').trim(),
       minQty: parseInt(row[5], 10) || 1,
       stepQty: parseInt(row[6], 10) || 1,
     }));
 
-    return NextResponse.json({ data: materials });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+    return NextResponse.json({ data: materials }, { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch (error) { return apiError(error, '讀取材料清單失敗。'); }
 }

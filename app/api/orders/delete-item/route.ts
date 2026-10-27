@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getGoogleSheets } from '@/lib/google-sheets';
 import { getServerSession } from "next-auth/next";
-
-const findColIdx = (headers: string[], keys: string[]) => {
-  return headers.findIndex(h => keys.some(k => h.toLowerCase().includes(k.toLowerCase())));
-};
+import { findColumn, isUserEditableStatus } from '@/lib/order-domain';
+import { apiError } from '@/lib/access';
 
 export async function DELETE(request: Request) {
   try {
@@ -14,6 +12,7 @@ export async function DELETE(request: Request) {
 
     const body = await request.json();
     const { orderId, materialName, deleteType } = body;
+    if (typeof orderId !== 'string' || !['order', 'single'].includes(deleteType) || (deleteType === 'single' && typeof materialName !== 'string')) return NextResponse.json({ error: '刪除資料不完整。' }, { status: 400 });
 
     const sheets = await getGoogleSheets();
     const sheetId = process.env.GOOGLE_SHEET_ID;
@@ -22,12 +21,24 @@ export async function DELETE(request: Request) {
     if (!rows) return NextResponse.json({ error: '找不到資料' }, { status: 404 });
 
     const headers = rows[0].map(h => String(h).trim());
-    const idIdx = findColIdx(headers, ['order_id', '單號']);
-    const itemIdx = findColIdx(headers, ['item_name', '材料', '品項']);
+    const idIdx = findColumn(headers, ['order_id', '單號']);
+    const itemIdx = findColumn(headers, ['item_name', '材料', '品項']);
+    const companyIdx = findColumn(headers, ['req_company', '工班', '公司']);
+    const statusIdx = findColumn(headers, ['status', '狀態']);
 
     if (idIdx === -1) return NextResponse.json({ error: '找不到單號欄位' }, { status: 400 });
 
+    const users = (await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Users!A:D' })).data.values || [];
+    const currentUser = users.find((row) => row[0] === userEmail);
+    const company = currentUser?.[2];
+    if (!currentUser || !['Admin', 'User'].includes(String(currentUser[1])) || !company) return NextResponse.json({ error: '您的帳號尚未完成工班權限設定。' }, { status: 403 });
+    const orderRows = rows.slice(1).filter((row) => row[idIdx] === orderId);
+    if (!orderRows.length) return NextResponse.json({ error: '找不到該筆訂單。' }, { status: 404 });
+    if (companyIdx === -1 || orderRows.some((row) => row[companyIdx] !== company)) return NextResponse.json({ error: '您沒有刪除此訂單的權限。' }, { status: 403 });
+    if (statusIdx === -1 || orderRows.some((row) => !isUserEditableStatus(String(row[statusIdx] || '')))) return NextResponse.json({ error: '此訂單目前不可刪除。' }, { status: 409 });
+    if (deleteType === 'single' && orderRows.filter((row) => row[itemIdx] === materialName).length > 1) return NextResponse.json({ error: '同單包含多筆同名材料，請透過修改單據選擇要移除的項目。' }, { status: 409 });
     const gid = (await sheets.spreadsheets.get({ spreadsheetId: sheetId })).data.sheets?.find(s => s.properties?.title === 'Orders')?.properties?.sheetId;
+    if (gid === undefined) return NextResponse.json({ error: '找不到 Orders 資料表。' }, { status: 500 });
     const rowsToDelete: number[] = [];
 
     for (let i = 1; i < rows.length; i++) {
@@ -60,8 +71,9 @@ export async function DELETE(request: Request) {
       } catch (e) { console.error('寫入 Delete Log 失敗', e); }
     }
 
+    if (!rowsToDelete.length) return NextResponse.json({ error: '找不到要刪除的材料。' }, { status: 404 });
     return NextResponse.json({ status: 'success' });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    return apiError(error, '刪除訂單失敗，請重新整理後再試。');
   }
 }

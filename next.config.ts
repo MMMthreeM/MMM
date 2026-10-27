@@ -2,12 +2,19 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   /* config options here */
   experimental: {
     agentFeedback: true,
+    // Avoid stale CSS from the current custom-loader filesystem cache.
+    turbopackFileSystemCacheForDev: false,
+    turbopackFileSystemCacheForBuild: false,
   },
   cacheComponents: true,
   partialPrefetching: true,
+  outputFileTracingIncludes: {
+    '/api/admin/export': ['./assets/report-templates/**/*'],
+  },
   turbopack: {
     rules: {
       "*.css": {

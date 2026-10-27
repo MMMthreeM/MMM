@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getGoogleSheets } from '@/lib/google-sheets';
+import { apiError, requireAccount } from '@/lib/access';
 
 const findColIdx = (headers: string[], keys: string[]) => {
   return headers.findIndex(h => keys.some(k => h.toLowerCase().includes(k.toLowerCase())));
@@ -7,7 +7,7 @@ const findColIdx = (headers: string[], keys: string[]) => {
 
 export async function GET() {
   try {
-    const sheets = await getGoogleSheets();
+    const { sheets } = await requireAccount();
     const sheetId = process.env.GOOGLE_SHEET_ID;
     const response = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'System_Notices!A:Z' });
     const rows = response.data.values;
@@ -29,7 +29,5 @@ export async function GET() {
       .filter(Boolean); // 過濾掉空行
 
     return NextResponse.json({ data: activeNotices });
-  } catch (error: any) { 
-    return NextResponse.json({ error: error.message }, { status: 500 }); 
-  }
+  } catch (error) { return apiError(error, '讀取公告失敗。'); }
 }
