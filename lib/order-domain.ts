@@ -8,6 +8,7 @@ export type MaterialRule = {
   unit: string;
   minQty: number;
   stepQty: number;
+  requiresRemarks?: boolean;
 };
 
 export type OrderItemInput = {
@@ -54,10 +55,12 @@ export function columnLetter(index: number) {
 }
 
 export function toMaterialRules(rows: unknown[][]): MaterialRule[] {
+  const remarksColumn = (rows[0] || []).findIndex((value) => String(value).trim().toLowerCase() === 'requires_remarks');
   return rows.slice(1).map((row) => ({
     id: String(row[0] ?? ''), name: String(row[1] ?? '').trim(), vendor: String(row[3] ?? '').trim(),
     unit: String(row[4] ?? '').trim(), minQty: Number.parseInt(String(row[5] ?? ''), 10) || 1,
     stepQty: Number.parseInt(String(row[6] ?? ''), 10) || 1,
+    requiresRemarks: remarksColumn >= 0 && ['true', '1', 'yes'].includes(String(row[remarksColumn]).trim().toLowerCase()),
   })).filter((material) => material.id && material.name);
 }
 
@@ -80,6 +83,7 @@ export function validateItems(items: unknown, rules: MaterialRule[]) {
     const material = item.originalId ? byId.get(item.originalId) : matchMaterial(rules, item);
     if (!isCustom && !material) return `找不到「${item.materialName}」的材料資料。請重新選擇材料。`;
     if (material) {
+      if (material.requiresRemarks && (typeof item.remarks !== 'string' || !item.remarks.trim())) return '混合材料請填寫各項品項、規格與數量備註。';
       if (quantity < material.minQty || quantity % material.stepQty !== 0) {
         return `「${material.name}」數量須至少 ${material.minQty}，且為 ${material.stepQty} 的倍數。`;
       }

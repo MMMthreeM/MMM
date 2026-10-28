@@ -63,6 +63,32 @@ function harness(options = {}) {
 
 const request = (body, method = 'POST') => new Request('http://localhost/api/test', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
+test('catalog metadata remains compatible with old sheets and never exposes prices', () => {
+  const { load } = harness(); const { publicMaterials } = load('@/lib/material-catalog');
+  const legacy = publicMaterials(materialRows);
+  assert.equal(legacy[0].name, '電線'); assert.equal(legacy[0].category, '其他材料');
+  const data = publicMaterials([['Item_ID','Item_Name','Tags','Vendor','Unit','Min_Qty','Step_Qty','Price','Category','Subcategory','Search_Aliases','Order_Hint','Requires_Remarks','Display_Name'],['M8','LED 35W\nPB5上蓋','混合材料, PB5','益詮','項',1,1,987654,'綜合材料','混合用料','組合,用料','請確認明細',true,'混合用料']]);
+  assert.equal(data[0].requiresRemarks, true); assert.equal(data[0].displayName, '混合用料');
+  assert.equal(data[0].aliases.join(','), '組合,用料'); assert(!JSON.stringify(data).includes('987654')); assert(!Object.hasOwn(data[0], 'price'));
+  const { validateItems, toMaterialRules } = load('@/lib/order-domain');
+  const rules = toMaterialRules([['ID','Name','Tags','Vendor','Unit','Min','Step','Price','Requires_Remarks'],['M8','混合材料','','益詮','項',1,1,500,'TRUE']]);
+  const item={materialName:'混合材料',quantity:1,unit:'項',vendor:'益詮',originalId:'M8'};
+  assert.match(validateItems([item], rules), /備註/); assert.match(validateItems([{...item,remarks:'   '}], rules), /備註/);
+  assert.equal(validateItems([{...item,remarks:'LED與PB5依清單確認'}], rules), null);
+});
+
+test('material search matches attached Chinese/specs, inch notation and ranks exact names first', () => {
+  const { load } = harness(); const { rankSearchOptions } = load('@/lib/material-catalog');
+  const options=[{value:'M1',label:'1.25mm2-2C 單線 /黑色',keywords:'黑線 電線'},{value:'M2',label:'1.25mm2-3C 電纜 灰色',keywords:'灰線'},{value:'M3',label:'2.5英吋管夾片',keywords:'歐姆夾'},{value:'M4',label:'防水型ELCB 2P15AT30mA',keywords:'漏電斷路器'},{value:'M5',label:'管夾片（大型）'},{value:'M6',label:'管夾片'}];
+  assert.equal(rankSearchOptions(options,'1.25黑線')[0].value,'M1');
+  assert.equal(rankSearchOptions(options,'1.25*3C 灰')[0].value,'M2');
+  assert.equal(rankSearchOptions(options,'２.５吋 歐姆夾')[0].value,'M3');
+  assert.equal(rankSearchOptions(options,'漏電 15AT')[0].value,'M4');
+  assert.equal(rankSearchOptions(options,'管夾片')[0].value,'M6');
+  assert.equal(rankSearchOptions(options,'M3')[0].value,'M3');
+  assert.equal(rankSearchOptions(options,'不存在的規格').length,0);
+});
+
 test('returned order presentation and filters agree for order and material reasons', () => {
   const { load } = harness();
   const { groupOrders, orderPresentation, filterOrderGroups } = load('@/lib/order-view');

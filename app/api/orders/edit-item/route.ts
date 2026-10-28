@@ -16,7 +16,7 @@ export async function PATCH(request: Request) {
     if (!account.company || matching.some(({ row }) => row.reqCompany !== account.company)) throw new AccessError('您沒有操作此草稿的權限。', 403);
     if (matching.some(({ row }) => row.status !== '編輯中')) throw new AccessError('此單已非草稿，請重新整理。', 409);
     if (columns.status < 0 || columns.orderDate < 0) throw new AccessError('訂單欄位設定不完整。', 409);
-    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:G' });
+    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:N' });
     const rules = toMaterialRules(materials.data.values ?? []);
     const items = matching.map(({ row }) => ({ ...row, originalId: matchMaterial(rules, row)?.id ?? 'other' }));
     const validation = validateItems(items, rules);

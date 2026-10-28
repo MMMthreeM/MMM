@@ -16,7 +16,7 @@ export async function PATCH(request: Request) {
     if (!group) throw new AccessError('找不到此需求單。', 404);
     if (!group.consistent || !['處理中', '審核中'].includes(group.status)) throw new AccessError('管理員只能修改處理中或審核中的完整需求單。', 409);
     if (group.status !== body.expectedStatus || JSON.stringify(group.items.map((item) => item.lineId).sort()) !== JSON.stringify([...body.expectedLineIds].sort())) throw new AccessError('需求單已被更新，請重新整理後再編輯。', 409);
-    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:G' });
+    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:N' });
     const validation = validateItems(body.items, toMaterialRules(materials.data.values ?? []));
     if (validation) throw new AccessError(validation, 400);
     const items = body.items as EditItem[];

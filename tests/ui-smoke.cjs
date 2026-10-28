@@ -7,6 +7,10 @@ const { chromium } = require(require.resolve('playwright', { paths: [process.env
 const artifacts = process.env.UI_ARTIFACT_DIR || path.join(require('node:os').tmpdir(), 'material-management-ui-check');
 fs.mkdirSync(artifacts, { recursive: true });
 const base = process.env.UI_BASE_URL || 'http://127.0.0.1:3000';
+const realCatalog = process.env.UI_CATALOG_PATH ? JSON.parse(fs.readFileSync(process.env.UI_CATALOG_PATH, 'utf8')) : [
+  { id: 'W1', name: '1.25mm2-2C 單線 /黑色', displayName: '1.25mm2-2C 單線 /黑色', unit: 'M', vendor: '伸泰', minQty: 100, stepQty: 100, tags: ['電線'], aliases: ['黑線'], category: '電線電纜', subcategory: '多芯電纜' },
+  { id: 'B1', name: 'LED 35W\nPB5上蓋', displayName: '混合用料（LED／PB5）', unit: '項', vendor: '益詮', minQty: 1, stepQty: 1, tags: ['混合材料'], aliases: ['組合材料'], category: '綜合材料', subcategory: '混合用料', requiresRemarks: true, orderHint: '請確認各項材料與數量' },
+];
 let nextLine = 0;
 const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompany = '甲工班') => ({ lineId: `line-${++nextLine}`, returnNote: '', orderId, orderDate: '2026-10-26 12:56', reqUser: '申請人', reqCompany, reqRegion: '高雄', materialName, quantity, unit: materialName === 'S' ? '式' : 'M', remarks: '需要確認現場規格與交貨時間，這是一段較長的手機版測試備註。', vendor: '材料商', status, adminNote: '', draftName: '', adminUser: '管理者', expectedDate: '' });
 
@@ -23,7 +27,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
       if (url.pathname === '/api/auth/session') return json({ user: { name: '測試使用者', email: 'test@example.test' }, expires: '2099-01-01T00:00:00.000Z' });
       if (url.pathname === '/api/me') return json({ account: { role: state.role, company: '甲工班', region: '高雄', name: '測試使用者', email: 'test@example.test' } });
       if (url.pathname === '/api/notices') return json({ data: [] });
-      if (url.pathname === '/api/materials') return json({ data: [{ id: 'M1', name: '電線', unit: 'M', vendor: '材料商', minQty: 100, stepQty: 100, tags: [] }, ...Array.from({ length: 240 }, (_, index) => ({ id: `M-${index}`, name: `規格材料 ${index} 長名稱檢查`, unit: '式', vendor: '材料商', minQty: 1, stepQty: 1, tags: ['配件'] }))] });
+      if (url.pathname === '/api/materials') return json({ data: [{ id: 'M1', name: '電線', unit: 'M', vendor: '材料商', minQty: 100, stepQty: 100, tags: [] }, ...Array.from({ length: 240 }, (_, index) => ({ id: `M-${index}`, name: `規格材料 ${index} 長名稱檢查`, unit: '式', vendor: '材料商', minQty: 1, stepQty: 1, tags: ['配件'] })), ...realCatalog.map((material) => ({ ...material, id: `REAL-${material.id}` }))] });
       if (url.pathname === '/api/admin/orders') return json({ data: state.orders.filter((row) => row.status !== '編輯中') });
       if (url.pathname === '/api/orders' && route.request().method() === 'GET') return json({ data: state.orders.filter((row) => row.reqCompany === '甲工班') });
       if (url.pathname === '/api/admin/update-status') {
@@ -160,10 +164,55 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.setViewportSize({ width: 1652, height: 936 });
     await page.getByRole('button', { name: '新增材料', exact: true }).click();
     assert((await page.locator('.request-frame').boundingBox()).width <= 1080);
-    assert((await page.locator('.quantity-stepper').boundingBox()).width <= 240);
+    assert.equal(await page.locator('.quantity-stepper').count(), 0);
     await page.screenshot({ path: path.join(artifacts, 'request-desktop.png'), fullPage: true });
+    await page.goto(base + '/request');
+    await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('電線電纜');
+    await page.getByRole('combobox', { name: '材料廠商', exact: true }).selectOption('伸泰');
+    await materialSearch.fill('1.25黑線');
+    const results = page.getByRole('listbox', { name: '搜尋並選擇材料搜尋結果' });
+    await results.getByRole('option').first().waitFor();
+    assert((await results.innerText()).includes('伸泰'));
+    await materialSearch.press('Enter');
+    await page.getByRole('button', { name: '加入常用', exact: true }).click();
+    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
+    await page.getByRole('button', { name: '常用材料', exact: true }).click();
+    await materialSearch.click();
+    assert.equal(await results.getByRole('option').count(), 1);
+    await materialSearch.press('Enter');
+    assert.equal(await page.getByRole('button', { name: '移除常用', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.reload();
+    await page.getByRole('button', { name: '常用材料', exact: true }).click();
+    await materialSearch.click();
+    await results.getByRole('option').first().waitFor();
+    assert.equal(await results.getByRole('option').count(), 1);
+    await materialSearch.press('Enter');
+    await page.getByRole('button', { name: '最近選用', exact: true }).click();
+    await materialSearch.click();
+    assert((await results.innerText()).includes('1.25'));
+    await materialSearch.press('Escape');
+    await page.getByRole('button', { name: '清除篩選', exact: true }).click();
+    await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('綜合材料');
+    await materialSearch.fill('混合');
+    await results.getByRole('option').first().waitFor();
+    await materialSearch.press('Enter');
+    assert.equal(await page.getByRole('textbox', { name: '附加備註', exact: true }).getAttribute('aria-required'), 'true');
+    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: '混合材料' }).waitFor();
+    await page.getByRole('textbox', { name: '附加備註', exact: true }).fill('LED35W、75W各3箱；灰色電纜10卷；PB5上蓋30只。');
+    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '已加入' }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '最近選用', exact: true }).click();
+    await materialSearch.fill('混合');
+    await materialSearch.press('Enter');
+    await page.getByText('查看混合材料完整內容', { exact: true }).click();
+    await assertNoOverflow();
+    await page.screenshot({ path: path.join(artifacts, 'catalog-mobile.png'), fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 1652, height: 1000 });
+    await page.screenshot({ path: path.join(artifacts, 'catalog-desktop.png'), fullPage: true, animations: 'disabled' });
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ result: 'passed', checks: ['role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export and shipping', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', '241-material search limited to 8 results', 'mobile and 1652px desktop request layout', 'no horizontal overflow'], screenshots: artifacts }, null, 2));
+    console.log(JSON.stringify({ result: 'passed', materialCount: 241 + realCatalog.length, checks: ['role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export and shipping', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', 'material search limited to 8 results', 'category and vendor filters with alias search', 'favorites persist after reload', 'recent material selection', 'mixed material remarks required', 'quantity controls appear after material selection', 'mobile and 1652px desktop request layout', 'no horizontal overflow'], screenshots: artifacts }, null, 2));
   } catch (error) {
     if (page) { console.error((await page.locator('body').innerText()).slice(0, 1800)); await page.screenshot({ path: path.join(artifacts, 'failed-check.png'), fullPage: true }).catch(() => {}); }
     throw error;

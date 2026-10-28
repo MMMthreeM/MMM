@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
+import { rankSearchOptions } from '@/lib/material-catalog';
 
 export type SearchOption = { value: string; label: string; detail?: string; keywords?: string };
-export default function SearchSelect({ label, value, options, onChange, emptyLabel = '全部', placeholder = '輸入名稱或關鍵字', disabled = false }: { label: string; value: string; options: SearchOption[]; onChange: (value: string) => void; emptyLabel?: string; placeholder?: string; disabled?: boolean }) {
+export default function SearchSelect({ label, value, options, onChange, emptyLabel = '全部', placeholder = '輸入名稱或關鍵字', disabled = false, valueLabel }: { label: string; value: string; options: SearchOption[]; onChange: (value: string) => void; emptyLabel?: string; placeholder?: string; disabled?: boolean; valueLabel?: string }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -10,9 +11,7 @@ export default function SearchSelect({ label, value, options, onChange, emptyLab
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [active, setActive] = useState(0);
-  const normalize = (text: string) => text.normalize('NFKC').toLowerCase();
-  const tokens = normalize(query).trim().split(/\s+/).filter(Boolean);
-  const matching = options.filter((option) => tokens.every((token) => normalize(`${option.label} ${option.detail || ''} ${option.keywords || ''}`).includes(token)));
+  const matching = rankSearchOptions(options, query);
   const pageCount = Math.max(1, Math.ceil(matching.length / 8));
   const currentPage = Math.min(page, pageCount - 1);
   const visible = matching.slice(currentPage * 8, (currentPage + 1) * 8);
@@ -25,7 +24,7 @@ export default function SearchSelect({ label, value, options, onChange, emptyLab
   }, []);
   return <div className="search-select" ref={root}>
     <label className="form-label" htmlFor={`${id}-input`}>{label}</label>
-    <div className="search-select-control"><input id={`${id}-input`} ref={input} className="form-control" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-list`} aria-activedescendant={open && visible[active] ? `${id}-option-${active}` : undefined} value={open ? query : selected?.label || ''} placeholder={value ? selected?.label : emptyLabel || placeholder} disabled={disabled}
+    <div className="search-select-control"><input id={`${id}-input`} ref={input} className="form-control" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-list`} aria-activedescendant={open && visible[active] ? `${id}-option-${active}` : undefined} value={open ? query : selected?.label || valueLabel || ''} placeholder={value ? selected?.label || valueLabel : emptyLabel || placeholder} disabled={disabled}
       onFocus={() => { setOpen(true); setQuery(''); setPage(0); setActive(0); }}
       onChange={(event) => { setQuery(event.target.value); setPage(0); setActive(0); setOpen(true); }}
       onKeyDown={(event) => {

@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     const currentUser = (userResponse.data.values || []).find(row => row[0] === userEmail);
     if (!currentUser || !['Admin', 'User'].includes(String(currentUser[1])) || !currentUser[2]) return NextResponse.json({ error: '您的帳號尚未完成工班權限設定。' }, { status: 403 });
     const company = currentUser[2], region = currentUser[3] || '';
-    const materialsResponse = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Materials!A:G' });
+    const materialsResponse = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Materials!A:N' });
     const itemError = validateItems(items, toMaterialRules(materialsResponse.data.values || []));
     if (itemError) return NextResponse.json({ error: itemError }, { status: 400 });
     
