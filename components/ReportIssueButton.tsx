@@ -1,99 +1,47 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/nextjs';
 
 export default function ReportIssueButton() {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const descriptionInput = useRef<HTMLTextAreaElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
+  useEffect(() => { if (isOpen) dialog.current?.showModal(); else dialog.current?.close(); }, [isOpen]);
   const handleSubmit = async () => {
-    if (!description.trim()) return alert('請填寫問題描述！');
-    setIsSubmitting(true);
-
+    if (isSubmitting) return;
+    if (!description.trim()) { setError('請描述遇到的問題。'); descriptionInput.current?.focus(); return; }
+    setIsSubmitting(true); setError('');
     try {
       const currentUrl = window.location.href;
-
-      // 1. 靜靜地寫入 Sentry 後台，方便開發者查閱 Log
-      Sentry.captureMessage(`[使用者回報] ${description}`, {
-        level: 'warning',
-        extra: { url: currentUrl }
-      });
-
-      // 2. 呼叫後端 API，推播至 Telegram 管理員群組
-      const res = await fetch('/api/report-issue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, url: currentUrl })
-      });
-
-      if (res.ok) {
-        alert('✅ 感謝您的回報！開發團隊已收到通知。');
-        setIsOpen(false);
-        setDescription('');
-      } else {
-        alert('❌ 傳送失敗，請稍後再試。');
-      }
-    } catch {
-      alert('❌ 發生錯誤，請稍後再試。');
-    } finally {
-      setIsSubmitting(false);
-    }
+      Sentry.captureMessage(`[使用者回報] ${description}`, { level: 'warning', extra: { url: currentUrl } });
+      const response = await fetch('/api/report-issue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description, url: currentUrl }) });
+      if (!response.ok) throw new Error('回報未送出，請保留內容並稍後重試。');
+      setSent(true); setIsOpen(false); setDescription('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '連線中斷，請稍後重試。');
+      descriptionInput.current?.focus();
+    } finally { setIsSubmitting(false); }
   };
-
-  return (
-    <>
-      {/* 💡 右下角懸浮按鈕 */}
-      <button 
-        onClick={() => setIsOpen(true)} 
-        className="report-issue-trigger fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-[#163047] px-4 py-3 text-white shadow-[0_8px_20px_rgba(22,48,71,.24)] transition-colors hover:bg-[#0c2437]"
-        title="回報系統問題"
-      >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
-        <span className="hidden pr-1 text-sm font-bold md:inline">回報問題</span>
+  return <>
+    <footer className="app-footer">
+      {sent && <p className="report-sent" role="status">問題回報已送出。</p>}
+      <button type="button" className="report-issue-trigger" onClick={() => { setError(''); setSent(false); setIsOpen(true); }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" /></svg>
+        回報問題
       </button>
-
-      {/* 💡 回報彈出視窗 (Modal) */}
-      {isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between bg-[#163047] p-4 text-white">
-              <h2 className="text-lg font-bold">系統問題回報</h2>
-              <button onClick={() => setIsOpen(false)} className="text-xl font-bold text-white/70 hover:text-white" aria-label="關閉">×</button>
-            </div>
-            
-            <div className="p-5">
-              <p className="text-sm text-gray-600 mb-3">
-                如果您遇到畫面卡住、錯誤訊息，或有任何建議，請在下方描述您的狀況：
-              </p>
-              <textarea
-                className="form-control h-32 resize-none"
-                placeholder="例如：我在送出草稿時，畫面一直轉圈圈..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                disabled={isSubmitting}
-              />
-            </div>
-            
-            <div className="flex justify-end gap-2 border-t border-[var(--line)] bg-[#f7fafb] p-4">
-              <button 
-                onClick={() => setIsOpen(false)}
-                disabled={isSubmitting}
-                className="btn btn-secondary disabled:opacity-50"
-              >
-                取消
-              </button>
-              <button 
-                onClick={handleSubmit}
-                disabled={isSubmitting || !description.trim()}
-                className="btn btn-primary disabled:opacity-50"
-              >
-                {isSubmitting ? '傳送中...' : '送出回報'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
+    </footer>
+    <dialog ref={dialog} className="action-dialog report-dialog" aria-labelledby="report-title" onCancel={(event) => { if (isSubmitting) event.preventDefault(); else setIsOpen(false); }}>
+      <form noValidate onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
+        <h2 id="report-title" className="section-title" tabIndex={-1} autoFocus>回報系統問題</h2>
+        <p className="field-hint mt-3">請寫下操作步驟與遇到的狀況，系統會附上目前頁面。</p>
+        <label className="mt-5 block"><span className="form-label">問題描述</span><textarea ref={descriptionInput} className="form-control h-32" name="description" autoComplete="off" maxLength={1500} aria-invalid={Boolean(error)} aria-describedby={error ? 'report-error' : undefined} placeholder="例如：送出草稿後，畫面沒有更新…" value={description} disabled={isSubmitting} onChange={(event) => setDescription(event.target.value)} /></label>
+        {error && <p id="report-error" className="field-error" role="alert">{error}</p>}
+        <div className="dialog-actions"><button type="button" className="btn btn-secondary" disabled={isSubmitting} onClick={() => setIsOpen(false)}>取消</button><button type="submit" className="btn btn-primary" disabled={isSubmitting}>{isSubmitting ? '傳送中…' : '送出回報'}</button></div>
+      </form>
+    </dialog>
+  </>;
 }

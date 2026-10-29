@@ -41,6 +41,12 @@ export function filterOrderGroups(groups: OrderGroup[], filters: OrderFilters) {
   return groups.filter((group) => {
     const { first, items, orderId } = group;
     const date = first.orderDate.slice(0, 10);
+    const search = (filters.search || '').trim().toLowerCase();
+    const dateQuery = search.replace(/[/.]/g, '-');
+    const isDateQuery = /^\d{4}-\d{2}(?:-\d{2})?$/.test(dateQuery) || /^\d{6}(?:\d{2})?$/.test(search);
+    const matchesSearch = !search || (isDateQuery
+      ? date.includes(dateQuery) || date.replace(/-/g, '').includes(search)
+      : orderId.toLowerCase().includes(search) || first.orderDate.toLowerCase().includes(dateQuery));
     return (!filters.company || first.reqCompany === filters.company)
       && (!filters.region || first.reqRegion === filters.region)
       && (!filters.status || (['待審核', '退回待修改'].includes(filters.status) ? orderPresentation(group).label === filters.status : items.every((item) => item.status === filters.status)))
@@ -48,7 +54,7 @@ export function filterOrderGroups(groups: OrderGroup[], filters: OrderFilters) {
       && (!filters.material || items.some((item) => item.materialName === filters.material))
       && (!filters.startDate || date >= filters.startDate)
       && (!filters.endDate || date <= filters.endDate)
-      && (!filters.search || orderId.toLowerCase().includes(filters.search.toLowerCase()));
+      && matchesSearch;
   });
 }
 

@@ -1,11 +1,13 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
 import { loadOrderSheet } from '@/lib/order-sheet';
 import { columnLetter, matchMaterial, toMaterialRules, validateItems } from '@/lib/order-domain';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { orderItemMessages } from '@/lib/order-message';
 import { escapeTelegramHtml } from '@/lib/telegram-html';
 
-export async function PATCH(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const { account, sheets } = await requireAccount();
     const body = await request.json();
@@ -31,8 +33,10 @@ export async function PATCH(request: Request) {
     try {
       const { logAudit } = await import('@/lib/audit');
       await logAudit(account.email, '草稿正式送出', body.orderId, `共 ${matching.length} 筆材料`);
-      if (process.env.TG_ADMIN_GROUP_ID) await sendTelegramMessage(process.env.TG_ADMIN_GROUP_ID, `<b>草稿正式送出</b>\n單號：${escapeTelegramHtml(body.orderId)}\n工班：${escapeTelegramHtml(account.company)}\n申請人：${escapeTelegramHtml(account.name)}`, process.env.TG_TOPIC_NEW_ORDER);
+      if (process.env.TG_ADMIN_GROUP_ID) for (const message of orderItemMessages( `<b>草稿正式送出</b>\n單號：${escapeTelegramHtml(body.orderId)}\n工班：${escapeTelegramHtml(account.company)}\n申請人：${escapeTelegramHtml(account.name)}`, items, '請至管理後台進行審核。')) await sendTelegramMessage(process.env.TG_ADMIN_GROUP_ID, message, process.env.TG_TOPIC_NEW_ORDER);
     } catch (error) { console.error('草稿送出通知失敗', error); }
     return NextResponse.json({ status: 'success' });
   } catch (error) { return apiError(error, '送出草稿失敗，請重新整理後再試。'); }
 }
+
+export const PATCH = secureMutation(handleMutation, { admin: false, action: 'draft-submit', limit: 10 });

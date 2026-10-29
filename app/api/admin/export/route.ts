@@ -1,3 +1,4 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import JSZip from 'jszip';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
@@ -8,7 +9,7 @@ import { notifyOrderProgress } from '@/lib/order-notifications';
 import { buildVendorReports } from '@/lib/vendor-report';
 import { taipeiDate } from '@/lib/date-range';
 
-export async function POST(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const { account, sheets, users } = await requireAccount(true);
     const body = await request.json();
@@ -61,3 +62,5 @@ export async function POST(request: Request) {
     return apiError(error, '報表產生失敗，請重新整理後再試。');
   }
 }
+
+export const POST = secureMutation(handleMutation, { admin: true, action: 'admin-export', limit: 3 });

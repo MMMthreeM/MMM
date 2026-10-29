@@ -1,0 +1,1 @@
+export const auditPendingNotice = (response: Response) => response.headers.get('X-Write-Status') === 'review-required' ? '本次作業已完成，但安全鎖待管理員確認；請勿重複送出。' : response.headers.get('X-Audit-Status') === 'pending' ? '作業已完成，稽核紀錄待補寫；請勿重複送出。' : '';

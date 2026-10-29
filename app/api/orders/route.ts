@@ -1,9 +1,11 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { getGoogleSheets } from '@/lib/google-sheets';
 import { getServerSession } from "next-auth/next";
 import { canUserMoveStatus, columnLetter, findColumn, isOrderStatus, isUserEditableStatus, toMaterialRules, validateItems } from '@/lib/order-domain';
 import { apiError, requireAccount } from '@/lib/access';
 import { loadOrderSheet } from '@/lib/order-sheet';
+import { orderItemMessages } from '@/lib/order-message';
 import { escapeTelegramHtml } from '@/lib/telegram-html';
 
 const findColIdx = (headers: string[], keys: string[]) => {
@@ -18,7 +20,7 @@ export async function GET() {
   } catch (error) { return apiError(error, '讀取工班需求單失敗，請稍後再試。'); }
 }
 
-export async function POST(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const session = await getServerSession();
     if (!session || !session.user?.email) return NextResponse.json({ error: '未授權' }, { status: 401 });
@@ -57,6 +59,7 @@ export async function POST(request: Request) {
     const headers = (headersRes.data.values?.[0] || []).map(h => String(h).trim());
     if ([['order_id', '單號'], ['req_company', '公司', '工班'], ['status', '狀態'], ['item_name', '材料', '品項'], ['quantity', '數量']].some((aliases) => findColumn(headers, aliases) < 0)) return NextResponse.json({ error: '訂單工作表欄位設定不完整，請聯絡管理者。' }, { status: 409 });
 
+    const deletes: number[] = [];
     if (existingOrderId) {
       const allRowsRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Orders!A:Z' });
       const rows = allRowsRes.data.values || [];
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
       if (preservedReturnNote && status === '處理中') preservedReturnNote = '[已重送] ' + preservedReturnNote;
 
       rowsToDelete.sort((a, b) => b - a);
-      await sheets.spreadsheets.batchUpdate({ spreadsheetId: sheetId, requestBody: { requests: rowsToDelete.map(rIdx => ({ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: rIdx, endIndex: rIdx + 1 } } })) } });
+      deletes.push(...rowsToDelete);
     }
 
     const newRows = items.map((item: { materialName: string; quantity: number; unit?: string; vendor?: string; remarks?: string }, itemIndex: number) => {
@@ -117,7 +120,15 @@ export async function POST(request: Request) {
     });
 
     const rangeToAppend = `Orders!A:${columnLetter(headers.length - 1)}`;
-    await sheets.spreadsheets.values.append({ spreadsheetId: sheetId, range: rangeToAppend, valueInputOption: 'RAW', requestBody: { values: newRows } });
+    if (deletes.length) {
+      const metadata = await sheets.spreadsheets.get({ spreadsheetId: sheetId, fields: 'sheets.properties' });
+      const gid = metadata.data.sheets?.find(s => s.properties?.title === 'Orders')?.properties?.sheetId;
+      if (gid === undefined) throw new Error('Orders sheet missing');
+      await sheets.spreadsheets.batchUpdate({ spreadsheetId: sheetId, requestBody: { requests: [
+        ...deletes.map(index => ({ deleteDimension: { range: { sheetId: gid, dimension: 'ROWS', startIndex: index, endIndex: index + 1 } } })),
+        { appendCells: { sheetId: gid, fields: 'userEnteredValue', rows: newRows.map(values => ({ values: values.map(value => ({ userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: String(value) } })) })) } },
+      ] } });
+    } else await sheets.spreadsheets.values.append({ spreadsheetId: sheetId, range: rangeToAppend, valueInputOption: 'RAW', requestBody: { values: newRows } });
     
     try {
       const { logAudit } = await import('@/lib/audit');
@@ -141,9 +152,9 @@ export async function POST(request: Request) {
           const titleIcon = isUpdate ? '🔄' : '🆕';
           const titleText = isUpdate ? '訂單更新 / 重送通知' : '新單進件通知';
           
-          const msg = `${titleIcon} <b>${titleText}</b>\n單號：<code>${escapeTelegramHtml(orderId)}</code>\n工班：${escapeTelegramHtml(company)}\n申請人：${escapeTelegramHtml(reqUserNickname)}\n品項數：${items.length} 項\n\n👉 請至管理後台進行審核。`;
+          const msg = `${titleIcon} <b>${titleText}</b>\n單號：<code>${escapeTelegramHtml(orderId)}</code>\n工班：${escapeTelegramHtml(company)}\n申請人：${escapeTelegramHtml(reqUserNickname)}\n品項數：${items.length} 項`;
           
-          await sendTelegramMessage(adminGroupId, msg, topicNewOrder);
+          for (const message of orderItemMessages(msg, items, '請至管理後台進行審核。')) await sendTelegramMessage(adminGroupId, message, topicNewOrder);
         }
       } catch (e) { console.error('新單推播失敗', e); }
     }
@@ -154,3 +165,5 @@ export async function POST(request: Request) {
     return apiError(error, '建立訂單失敗，請稍後再試。');
   }
 }
+
+export const POST = secureMutation(handleMutation, { admin: false, action: 'order-save', limit: 20 });

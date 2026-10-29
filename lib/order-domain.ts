@@ -1,3 +1,4 @@
+import { materialIdentity } from '@/lib/material-identity';
 export const ORDER_STATUSES = ['編輯中', '處理中', '審核中', '準備出貨', '已送達'] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
@@ -79,7 +80,7 @@ export function validateItems(items: unknown, rules: MaterialRule[]) {
     if ((item.unit !== undefined && (typeof item.unit !== 'string' || item.unit.length > 30)) || (item.vendor !== undefined && (typeof item.vendor !== 'string' || item.vendor.length > 100))) return '單位或廠商資料格式不正確。';
     if (item.originalId !== undefined && typeof item.originalId !== 'string') return '材料識別格式不正確。';
     const isCustom = item.originalId === 'other';
-    if (isCustom && matchMaterial(rules, item)) return '此材料已列於材料清單，請從清單選取以套用正確規格。';
+    if (isCustom && rules.some(rule => materialIdentity({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor }) === materialIdentity(item))) return '此材料已列於材料清單，請從清單選取以套用正確規格。';
     const material = item.originalId ? byId.get(item.originalId) : matchMaterial(rules, item);
     if (!isCustom && !material) return `找不到「${item.materialName}」的材料資料。請重新選擇材料。`;
     if (material) {

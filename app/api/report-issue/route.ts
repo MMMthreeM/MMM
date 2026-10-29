@@ -1,9 +1,10 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { apiError, requireAccount } from '@/lib/access';
 import { escapeTelegramHtml } from '@/lib/telegram-html';
 
-export async function POST(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const { account } = await requireAccount();
     const userEmail = account.email;
@@ -28,3 +29,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'success' });
   } catch (error) { return apiError(error, '問題回報失敗，請稍後再試。'); }
 }
+
+export const POST = secureMutation(handleMutation, { admin: false, action: 'issue-report', limit: 3, orderWrite: false });

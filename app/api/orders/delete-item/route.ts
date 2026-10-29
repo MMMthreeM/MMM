@@ -1,10 +1,11 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { getGoogleSheets } from '@/lib/google-sheets';
 import { getServerSession } from "next-auth/next";
 import { findColumn, isUserEditableStatus } from '@/lib/order-domain';
 import { apiError } from '@/lib/access';
 
-export async function DELETE(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const session = await getServerSession();
     if (!session || !session.user?.email) return NextResponse.json({ error: '未授權' }, { status: 401 });
@@ -77,3 +78,5 @@ export async function DELETE(request: Request) {
     return apiError(error, '刪除訂單失敗，請重新整理後再試。');
   }
 }
+
+export const DELETE = secureMutation(handleMutation, { admin: false, action: 'order-delete', limit: 10 });

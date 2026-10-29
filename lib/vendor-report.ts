@@ -1,19 +1,25 @@
+import { canonicalMaterialText, canonicalVendor, materialIdentity } from '@/lib/material-identity';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { AccessError } from '@/lib/access';
-import { findColumn } from '@/lib/order-domain';
+import { findColumn, toMaterialRules } from '@/lib/order-domain';
 import type { OrderRow } from '@/lib/order-view';
 import { taipeiDate } from '@/lib/date-range';
 
 type Template = { key: string; vendor: string; sheetName: string; columns: number; rows: number; rowStyles: number[][]; footerFormulas: { address: string; formula: string }[]; materialRows: { row: number; name: string; unit: string | null; vendor: string | null }[]; companies: { name: string; column: number }[] };
 export type VendorFile = { vendor: string; filename: string; buffer: Buffer };
-const normalized = (value: string) => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-const vendorName = (value: string) => normalized(value).replace(/^外購\//, '');
+const normalized = canonicalMaterialText;
+const vendorName = canonicalVendor;
 const xml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const columnName = (column: number) => String.fromCharCode(64 + column);
 
 export async function buildVendorReports(rows: OrderRow[], materialRows: unknown[][]): Promise<VendorFile[]> {
+  const rules = toMaterialRules(materialRows);
+  for (const row of rows) {
+    const candidates = rules.filter(rule => materialIdentity({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor }) === materialIdentity(row));
+    if (candidates.some(rule => row.quantity < rule.minQty || row.quantity % rule.stepQty !== 0 || (rule.requiresRemarks && !row.remarks?.trim()))) throw new AccessError('材料「'+row.materialName+'」不符目前材料庫的數量或備註規則，請先確認需求單。', 409);
+  }
   const headers = (materialRows[0] ?? []).map(String);
   const nameIndex = findColumn(headers, ['name', '名稱', '材料']);
   const unitIndex = findColumn(headers, ['unit', '單位']);

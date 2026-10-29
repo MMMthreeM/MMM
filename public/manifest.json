@@ -1,11 +1,11 @@
 {
-  "name": "材料需求管理平台",
+  "name": "維運材料管理平台",
   "short_name": "材料管理",
   "description": "工班材料需求與審核平台",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f3f4f6",
-  "theme_color": "#2563eb",
+  "background_color": "#f5f6f7",
+  "theme_color": "#245c75",
   "icons": [
     {
       "src": "/icon-192.png",

@@ -1,3 +1,4 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
 import { loadOrderSheet } from '@/lib/order-sheet';
@@ -6,7 +7,7 @@ import { groupOrders } from '@/lib/order-view';
 
 type EditItem = OrderItemInput & { lineId?: string };
 
-export async function PATCH(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const { account, sheets } = await requireAccount(true);
     const body = await request.json();
@@ -59,3 +60,5 @@ export async function PATCH(request: Request) {
     return apiError(error, '儲存需求單失敗，請重新整理後再試。');
   }
 }
+
+export const PATCH = secureMutation(handleMutation, { admin: true, action: 'admin-edit', limit: 20 });

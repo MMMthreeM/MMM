@@ -1,10 +1,11 @@
+import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
 import { isOrderStatus } from '@/lib/order-domain';
 import { updateOrderStatuses } from '@/lib/order-actions';
 import { notifyOrderProgress } from '@/lib/order-notifications';
 
-export async function PATCH(request: Request) {
+async function handleMutation(request: Request) {
   try {
     const { account, sheets, users } = await requireAccount(true);
     const body = await request.json();
@@ -24,3 +25,5 @@ export async function PATCH(request: Request) {
     return apiError(error, '更新狀態失敗，請重新整理後再試。');
   }
 }
+
+export const PATCH = secureMutation(handleMutation, { admin: true, action: 'admin-status', limit: 20 });

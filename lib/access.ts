@@ -3,15 +3,18 @@ import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
 import { getGoogleSheets } from '@/lib/google-sheets';
 import type { Account } from '@/lib/order-view';
+import { consumeRate } from '@/lib/security-store';
+import { AccessError } from '@/lib/access-error';
+export { AccessError } from '@/lib/access-error';
 
-export class AccessError extends Error {
-  constructor(message: string, public status: number) { super(message); }
-}
+
 
 export async function requireAccount(adminOnly = false) {
   const session = await getServerSession();
   const email = session?.user?.email;
   if (!email) throw new AccessError('請先登入。', 401);
+  // Bound authenticated traffic before every request can consume a Sheets lookup.
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) await consumeRate(email, 'authenticated', 120);
   const sheets = await getGoogleSheets();
   const response = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Users!A:F' });
   const users = response.data.values ?? [];

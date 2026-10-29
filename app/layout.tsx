@@ -7,7 +7,7 @@ import AppShell from '@/components/AppShell';
 
 // 💡 伺服器端專屬的 PWA 資訊與手機主題顏色設定
 export const metadata: Metadata = {
-  title: "材料需求管理平台",
+  title: "維運材料管理平台",
   description: "工班材料需求與審核平台",
   manifest: "/manifest.json",
   appleWebApp: {
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2563eb",
+  themeColor: "#245c75",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
