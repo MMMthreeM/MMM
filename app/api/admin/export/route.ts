@@ -32,7 +32,7 @@ async function handleMutation(request: Request) {
     const groups = scope === 'selected' ? all.filter((group) => requested.has(group.orderId)) : filterOrderGroups(all, filters).filter((group) => group.status === '審核中');
     if (groups.length !== requested.size || groups.some((group) => !requested.has(group.orderId))) throw new AccessError('匯出範圍或狀態已變更，請重新整理並確認。', 409);
     if (groups.some((group) => !group.consistent || !['審核中', '準備出貨', '已送達'].includes(group.status))) throw new AccessError('僅能匯出審核中、準備出貨或已送達的完整需求單。', 409);
-    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:AZ' });
+    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials' });
     const files = await buildVendorReports(groups.flatMap((group) => group.items), materials.data.values ?? []);
     const archive = new JSZip();
     files.forEach((file) => archive.file(file.filename, file.buffer));

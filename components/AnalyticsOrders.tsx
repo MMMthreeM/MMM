@@ -3,7 +3,7 @@ import { orderPresentation, type OrderGroup } from '@/lib/order-view';
 
 export default function AnalyticsOrders({ groups, admin, material }: { groups: OrderGroup[]; admin: boolean; material: string }) {
   return <div className="table-scroll"><table className="data-table trend-order-table analytics-orders-table">
-    <thead><tr><th scope="col">送出／更新時間</th><th scope="col">材料需求</th><th scope="col">目前進度</th><th scope="col">操作</th></tr></thead>
+    <thead><tr><th scope="col">送出／更新時間</th><th scope="col">材料需求</th><th scope="col">需求狀態</th><th scope="col">操作</th></tr></thead>
     <tbody>{groups.map(group => {
       const presentation = orderPresentation(group);
       return <tr key={group.orderId} data-analytics-order={group.orderId}>

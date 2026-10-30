@@ -27,7 +27,8 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
       if (url.pathname === '/api/auth/session') return json({ user: { name: '測試使用者', email: 'test@example.test' }, expires: '2099-01-01T00:00:00.000Z' });
       if (url.pathname === '/api/admin/retry-audit') { state.auditRetries=(state.auditRetries||0)+1; return json({status:'success'}); }
       if (url.pathname === '/api/me') return json({ account: { role: state.role, company: '甲工班', region: '高雄', name: '測試使用者', email: 'test@example.test' } });
-      if (url.pathname === '/api/notices') return json({ data: [] });
+      if (url.pathname === '/api/notices') return json({ data: ['系統測試公告，請確認資料。'] });
+      if (url.pathname === '/api/report-issue') return json({ status: 'success' });
       if (url.pathname === '/api/materials') return json({ data: [{ id: 'M1', name: '電線', unit: 'M', vendor: '材料商', minQty: 100, stepQty: 100, tags: [] }, ...Array.from({ length: 240 }, (_, index) => ({ id: `M-${index}`, name: `規格材料 ${index} 長名稱檢查`, unit: '式', vendor: '材料商', minQty: 1, stepQty: 1, tags: ['配件'] })), ...realCatalog.map((material) => ({ ...material, id: `REAL-${material.id}` }))] });
       if (url.pathname === '/api/orders' && route.request().method() === 'POST') {
         const body = route.request().postDataJSON();
@@ -64,7 +65,14 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(base + '/');
     await page.getByRole('heading', { name: '管理工作總覽' }).waitFor();
+    await page.locator('.notice-banner-inner').waitFor();
+    assert.equal(Math.round((await page.locator('.notice-banner-inner').boundingBox()).x), Math.round((await page.locator('.app-topbar-inner').boundingBox()).x));
+    const bannerText=await page.locator('.notice-banner-inner > div').boundingBox();
+    const bannerClose=await page.getByRole('button',{name:'關閉公告',exact:true}).boundingBox();
+    assert(Math.abs(bannerText.y+bannerText.height/2-bannerClose.y-bannerClose.height/2)<2);
+    assert((await page.locator('.notice-banner').boundingBox()).height<=50);
     const beforeAuditRetry=JSON.stringify(state.orders);
+    await page.getByRole('button', { name: '稽核紀錄維護', exact: true }).click();
     await page.getByRole('button',{name:'補寫待處理稽核紀錄',exact:true}).click();
     await page.getByRole('status').filter({hasText:'已完成本次待處理稽核補寫'}).waitFor();
     assert.equal(state.auditRetries,1);assert.equal(JSON.stringify(state.orders),beforeAuditRetry);
@@ -76,7 +84,34 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('region',{name:'管理作業',exact:true}).waitFor();
     await page.getByRole('region',{name:'工班作業',exact:true}).waitFor();
     await page.getByRole('button',{name:'關閉主要選單'}).click();
+    // Revisit the cached review route through each home card without a reload.
+    for (const [label, status] of [['審核中，可匯出', '審核中'], ['待審核需求', '待審核'], ['準備出貨', '準備出貨']]) {
+      await page.locator('.overview-queue').getByRole('link').filter({ hasText: label }).click();
+      await page.waitForFunction((status) => {
+        const label = [...document.querySelectorAll('label')].find(el => el.querySelector('.form-label')?.textContent === '需求狀態');
+        return label?.querySelector('select')?.value === status;
+      }, status);
+      assert.equal(await page.locator('.order-item .quantity-value').count(), 0);
+      await page.getByRole('link', { name: '管理工作總覽', exact: true }).click();
+      await page.locator('.overview-queue a').first().waitFor();
+    }
+    await page.screenshot({ path: path.join(artifacts, 'overview-cards-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(artifacts, 'overview-cards-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole('link', { name: '前往材料審核中心' }).click();
+    const reviewStatusOptions = await page.getByRole('combobox', {name:'需求狀態',exact:true}).locator('option').allTextContents();
+    for (const width of [1652,1024,640]) {
+      await page.setViewportSize({width,height:1000});
+      if (!(await page.locator('.date-range-fields:visible').count())) await page.locator('.filter-panel:visible summary').click();
+      const range=page.locator('.date-range-fields:visible');
+      const from=await range.locator('input').first().boundingBox(), to=await range.locator('input').last().boundingBox();
+      assert(Math.abs(from.y-to.y)<2,'date fields stay beside each other');
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    }
+    await page.setViewportSize({width:1440,height:1000});
+    assert.deepEqual(await page.locator('.filter-grid .form-label').allTextContents().then(labels=>labels.slice(0,2)), ['地區','工班']);
     await page.locator('[data-order-id="ORD-20261026-9212"] .order-date').waitFor();
     const checkbox = page.getByRole('checkbox', { name: '選取整張需求單 ORD-20261026-9212，共 4 筆材料', exact: true });
     await checkbox.check();
@@ -134,8 +169,20 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.screenshot({ path: path.join(artifacts, 'admin-mobile.png'), fullPage: true });
     await assertNoOverflow();
     await page.getByRole('button', { name: '開啟主要選單' }).click();
-    await page.getByRole('link', { name: '需求分析儀表板', exact: true }).click();
-    await page.getByRole('heading', { name: '各工班材料需求儀表板' }).waitFor();
+    await page.getByRole('link', { name: '趨勢分析儀表板', exact: true }).click();
+    await page.getByRole('heading', { name: '各工班材料趨勢分析儀表板' }).waitFor();
+    assert.deepEqual(await page.getByRole('combobox', {name:'需求狀態',exact:true}).locator('option').allTextContents(),reviewStatusOptions);
+    assert.deepEqual(await page.locator('.filter-grid .form-label').allTextContents().then(labels=>labels.slice(0,2)), ['地區','工班']);
+    if (!(await page.getByRole('combobox', {name:'地區',exact:true}).isVisible())) await page.locator('.analytics-frame .filter-panel summary').click();
+    await page.getByRole('combobox', {name:'地區',exact:true}).selectOption('高雄');
+    await page.getByRole('combobox', {name:'需求狀態',exact:true}).selectOption('審核中');
+    await page.getByRole('button', {name:'清除篩選',exact:true}).click();
+    await page.getByRole('button', {name:'工班明細',exact:true}).click();
+    const companyRow=page.locator('#company-statistics tbody tr').first();
+    assert.equal(await companyRow.locator('.data-link').evaluate(el=>getComputedStyle(el).fontSize), await companyRow.locator('td').first().evaluate(el=>getComputedStyle(el).fontSize));
+    await page.setViewportSize({width:1440,height:1000});
+    await page.screenshot({path:path.join(artifacts,'company-summary-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
     await page.getByRole('button', { name: '材料總覽', exact: true }).click();
     await page.getByRole('heading', { name: '材料需求明細統計' }).waitFor();
     await assertNoOverflow();
@@ -147,7 +194,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     state.orders.push({ ...makeRow('RETURNED-1', '需修改材料', 1, '處理中'), returnNote: '請確認材料規格' }, makeRow('PENDING-1', '新送出材料', 1, '處理中'));
     for (let index = 0; index < 25; index++) state.orders.push(makeRow(`PAGE-${index}`, `分頁材料 ${index}`, 1, '已送達'));
     await page.goto(base + '/');
-    await page.getByRole('heading', { name: '甲工班材料需求儀表板' }).waitFor();
+    await page.getByRole('heading', { name: '甲工班材料趨勢分析儀表板' }).waitFor();
     await page.getByRole('button', { name: '材料總覽', exact: true }).click();
     await page.getByRole('heading', { name: '材料需求明細統計' }).waitFor();
     await page.locator('#material-statistics .data-link').first().click();
@@ -235,23 +282,15 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await results.getByRole('option').first().waitFor();
     assert(!(await results.innerText()).includes('伸泰'));
     await materialSearch.press('Enter');
-    await page.getByRole('button', { name: '加入常用', exact: true }).click();
     await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    await page.getByRole('button', { name: '常用材料', exact: true }).click();
-    await materialSearch.click();
-    assert.equal(await results.getByRole('option').count(), 1);
-    await materialSearch.press('Enter');
-    assert.equal(await page.getByRole('button', { name: '移除常用', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.getByRole('button', { name: '常用材料', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '最近選用', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '加入常用', exact: true }).count(), 0);
     await page.reload();
-    await page.getByRole('button', { name: '常用材料', exact: true }).click();
-    await materialSearch.click();
+    await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('電線電纜');
+    await materialSearch.fill('1.25黑線');
     await results.getByRole('option').first().waitFor();
-    assert.equal(await results.getByRole('option').count(), 1);
     await materialSearch.press('Enter');
-    await page.getByRole('button', { name: '最近選用', exact: true }).click();
-    await materialSearch.click();
-    assert((await results.innerText()).includes('1.25'));
-    await materialSearch.press('Escape');
     await page.getByRole('button', { name: '清除篩選', exact: true }).click();
     await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('綜合材料');
     await materialSearch.fill('混合');
@@ -264,7 +303,6 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
     await page.getByRole('status').filter({ hasText: '已加入' }).waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole('button', { name: '最近選用', exact: true }).click();
     await materialSearch.fill('混合');
     await materialSearch.press('Enter');
     await page.getByText('查看混合材料完整內容', { exact: true }).click();
@@ -307,7 +345,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('button', { name: '取消', exact: true }).click();
     await page.locator('.page-title').click();
     await page.screenshot({ path: path.join(artifacts, 'review-selected-320.png'), fullPage: true, animations: 'disabled' });
-    assert.deepEqual(await page.evaluate(() => ({ blue: getComputedStyle(document.documentElement).getPropertyValue('--delta-blue').trim(), green: getComputedStyle(document.documentElement).getPropertyValue('--delta-green').trim() })), { blue: '#245c75', green: '#2e6b4f' });
+    assert.deepEqual(await page.evaluate(() => ({ blue: getComputedStyle(document.documentElement).getPropertyValue('--delta-blue').trim(), green: getComputedStyle(document.documentElement).getPropertyValue('--delta-green').trim() })), { blue: '#0077c8', green: '#2e6b4f' });
     await page.goto(base + '/request');
     await materialSearch.fill('電線');
     await materialSearch.press('Enter');
@@ -326,12 +364,15 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('button', { name: '查看歷史需求單', exact: true }).click();
     await page.getByRole('heading', { name: '歷史需求單', exact: true }).waitFor();
     assert.equal(await page.getByRole('dialog', { name: '尚有未儲存的內容' }).count(), 0);
-    assert.equal(await page.locator('.report-issue-trigger').evaluate((button) => getComputedStyle(button).position), 'static');
+    assert.equal(await page.getByRole('button', { name: '回報問題', exact: true }).evaluate((button) => getComputedStyle(button).position), 'static');
     await page.getByRole('button', { name: '回報問題', exact: true }).click();
     await page.getByRole('dialog', { name: '回報系統問題', exact: true }).waitFor();
     await page.getByRole('button', { name: '送出回報', exact: true }).click();
     assert(await page.getByRole('textbox', { name: '問題描述', exact: true }).evaluate((element) => element === document.activeElement));
-    await page.keyboard.press('Escape');
+    await page.getByRole('textbox', { name: '問題描述', exact: true }).fill('測試回報成功提示會自動收起');
+    await page.getByRole('button', { name: '送出回報', exact: true }).click();
+    await page.getByText('問題回報已送出。', { exact: true }).waitFor();
+    await page.getByText('問題回報已送出。', { exact: true }).waitFor({ state: 'hidden', timeout: 9000 });
     await page.getByRole('dialog', { name: '回報系統問題', exact: true }).waitFor({ state: 'hidden' });
     state.role = 'User';
     state.orders = [];
@@ -384,8 +425,58 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('link', {name:/查看 2026-10-12/}).click();
     await page.locator('[data-order-id="TREND-15"]').waitFor();
     assert.equal(await page.getByRole('tab',{name:/準備出貨／已送達/}).getAttribute('aria-selected'),'true');
+    await page.goto(base + '/request');
+    assert.equal(await page.getByRole('button', { name: '稽核紀錄維護', exact: true }).count(), 0);
+    await page.getByRole('link', {name:'開啟草稿',exact:true}).click();
+    await page.getByRole('tab', {name:/草稿/}).waitFor();
+    assert.equal(await page.getByRole('tab', {name:/草稿/}).getAttribute('aria-selected'),'true');
+    await page.goto(base + '/request');
+    await page.locator('.text-order-import > summary').click();
+    assert.equal(await page.getByRole('textbox', {name:'叫料文字',exact:true}).getAttribute('placeholder'), '例如：\n8mm2 -1C 電線/白色 (100M/丸)\n2mm2 -2C 電纜/黑色 (100M/丸)\nLED燈泡(E40) 75W 白光\n防水型ELCB 2P 15AT 30mA 0.1S*50只\n【交貨備註】');
+    await page.getByRole('textbox', { name: '叫料文字', exact: true }).fill('電線：5箱\n規格材料 0：1箱\n找不到的特殊材料\n【每棧板不超過850公斤】');
+    await page.getByRole('button', { name: '分析叫料文字', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '第 1 筆需求數量（M）', exact: true }).inputValue(), '500');
+    assert.equal(await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).inputValue(), '');
+    await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).fill('規格材料 0 長名稱檢查');
+    await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).press('Enter');
+    assert.equal(await page.getByRole('textbox', { name: '第 2 筆需求數量（式）', exact: true }).inputValue(), '1');
+    await page.locator('.text-note-targets').getByRole('checkbox').first().check();
+    await page.getByRole('button', { name: '將確認的 3 筆加入清單', exact: true }).click();
+    assert.equal(await page.locator('.request-cart li').count(), 0);
+    await page.waitForFunction(() => document.activeElement?.getAttribute('data-text-line') === '0');
+    await page.getByRole('textbox', { name: '第 2 筆需求數量（式）', exact: true }).fill('3');
+    await page.getByRole('button', { name: '略過第 3 筆', exact: true }).click();
+    for (const i of [1, 2]) await page.getByRole('checkbox', { name: `已確認第 ${i} 筆材料、單位、數量及備註`, exact: true }).check();
+    await page.locator('#text-order-notes').fill('【每棧板不超過850公斤，請分批交貨】');
+    assert(await page.getByRole('checkbox', {name:'已確認第 1 筆材料、單位、數量及備註',exact:true}).isChecked());
+    const lastLine = await page.locator('.text-order-line').last().boundingBox();
+    assert((await page.locator('#text-order-notes').boundingBox()).y > lastLine.y + lastLine.height);
+    assert.equal(await page.locator('.text-line-actions').first().getByRole('button', {name:'略過第 1 筆',exact:true}).count(),1);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 1000 }); await assertNoOverflow();
+      await page.screenshot({ path: path.join(artifacts, `text-order-${width}.png`), fullPage: true });
+    }
+    await page.getByRole('button', { name: '恢復第 3 筆', exact: true }).click();
+    await page.locator('[data-text-line="2"]').getByRole('button', {name:'找不到材料？自行填寫',exact:true}).click();
+    await page.getByRole('textbox', {name:'第 3 筆自填材料名稱',exact:true}).fill('特殊保護套');
+    await page.getByRole('textbox', {name:'第 3 筆自填單位',exact:true}).fill('個');
+    await page.getByRole('checkbox', {name:'已確認第 3 筆材料、單位、數量及備註',exact:true}).check();
+    await page.getByRole('button', { name: '將確認的 3 筆加入清單', exact: true }).click();
+    assert.equal(await page.locator('.request-cart li').count(), 3);
+    assert.equal(await page.getByRole('textbox', { name: '叫料文字', exact: true }).inputValue(), '');
+    await page.locator('.request-cart button').click();
+    assert.equal(await page.getByText(/^已從文字叫料加入/).count(),0);
+    assert.equal(await page.locator('.cart-remark').filter({ hasText: '850公斤' }).count(), 1);
+    await page.getByRole('button', { name: '正式送出', exact: true }).click();
+    await page.getByRole('heading', { name: '訂單已送出', exact: true }).waitFor();
+    const imported = state.orders.filter(row => row.orderId === 'CREATED-RWD');
+    assert.deepEqual(imported.map(row => row.quantity), [500, 3, 1]);
+    assert(imported[0].remarks.includes('850公斤'));
+    assert(!imported[1].remarks.includes('850公斤'));
+    assert.equal(imported[2].materialName,'特殊保護套');
+    assert.equal(imported[2].unit,'個');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ result: 'passed', materialCount: 241 + realCatalog.length, checks: ['role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export and shipping', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', 'material search shows 8 mobile / 24 desktop options', 'category filters and alias search', 'favorites persist after reload', 'recent material selection', 'mixed material remarks required', 'quantity controls appear after material selection', 'mobile and 1652px desktop request layout', 'no horizontal overflow', 'date-first order identities', '16-month desktop axis', '6-month mobile window navigation', 'month-linked orders and archived order deep link'], screenshots: artifacts }, null, 2));
+    console.log(JSON.stringify({ result: 'passed', materialCount: 241 + realCatalog.length, checks: ['footer admin-only audit utility', 'report success dismisses after 6 seconds', 'text order review and manual unit confirmation', 'text import submits through existing order form', 'role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export and shipping', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', 'material search shows 8 mobile / 24 desktop options', 'category filters and alias search', 'favorites and recent shortcuts removed', 'mixed material remarks required', 'quantity controls appear after material selection', 'mobile and 1652px desktop request layout', 'no horizontal overflow', 'date-first order identities', '16-month desktop axis', '6-month mobile window navigation', 'month-linked orders and archived order deep link'], screenshots: artifacts }, null, 2));
   } catch (error) {
     if (page) { console.error((await page.locator('body').innerText()).slice(0, 1800)); await page.screenshot({ path: path.join(artifacts, 'failed-check.png'), fullPage: true }).catch(() => {}); }
     throw error;

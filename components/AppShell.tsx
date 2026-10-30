@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { Account } from '@/lib/order-view';
 import ReportIssueButton from '@/components/ReportIssueButton';
+import SecurityAuditPanel from '@/components/SecurityAuditPanel';
 import NavigationGuard, { useUnsavedChanges } from '@/components/NavigationGuard';
 
 const AccountContext = createContext<Account | null>(null);
@@ -34,8 +35,8 @@ function ShellContent({ children }: { children: React.ReactNode }) {
     return () => controller.abort();
   }, [status, session?.user?.email]);
   const sections = [
-    ...(account?.role === 'Admin' ? [{ title: '管理作業', links: [{ href: '/', label: '管理工作總覽' }, { href: '/admin', label: '材料審核中心' }, { href: '/analytics', label: '需求分析儀表板' }] }] : []),
-    { title: '工班作業', links: [...(account?.role === 'Admin' ? [] : [{ href: '/', label: '需求分析儀表板' }]), { href: '/request', label: '建立材料需求' }, { href: '/dashboard', label: '歷史需求單' }] },
+    ...(account?.role === 'Admin' ? [{ title: '管理作業', links: [{ href: '/', label: '管理工作總覽' }, { href: '/admin', label: '材料審核中心' }, { href: '/analytics', label: '趨勢分析儀表板' }] }] : []),
+    { title: '工班作業', links: [...(account?.role === 'Admin' ? [] : [{ href: '/', label: '趨勢分析儀表板' }]), { href: '/request', label: '建立材料需求' }, { href: '/dashboard', label: '歷史需求單' }] },
   ];
   return <AccountContext.Provider value={account}>
     <div className="app-shell">
@@ -47,8 +48,8 @@ function ShellContent({ children }: { children: React.ReactNode }) {
       <div id="main-content" tabIndex={-1}>{status === 'loading' || (status === 'authenticated' && !account && !error) ? <div className="page-frame" role="status">正在確認登入資訊…</div>
         : status === 'unauthenticated' ? <main className="page-frame login-frame"><section className="surface p-7 sm:p-9"><h1 className="page-title">維運材料管理平台</h1><p className="page-subtitle leading-7">建立需求、追蹤進度，掌握工班的材料需求情況。</p><p className="mt-6 text-sm leading-7 text-[var(--muted)]">請使用已登錄的 Google 帳號登入，系統會依照您的工班與權限提供對應功能。</p><button className="btn btn-primary mt-7 w-full" onClick={() => signIn('google', { callbackUrl: '/' })}>使用 Google 帳號登入</button></section></main>
           : error ? <div className="page-frame"><p role="alert" className="feedback-error">{error}</p><div className="mt-4 flex gap-3"><button className="btn btn-secondary" onClick={() => window.location.reload()}>重新整理</button><button className="btn btn-quiet" onClick={() => signOut({ callbackUrl: '/' })}>登出</button></div></div>
-            : pathname.startsWith('/admin') && account?.role !== 'Admin' ? <div className="page-frame"><h1 className="page-title">此頁面僅供管理者使用</h1><Link href="/" className="btn btn-primary mt-5">返回材料需求儀表板</Link></div> : children}</div>
-      {account && status === 'authenticated' && <ReportIssueButton />}
+            : pathname.startsWith('/admin') && account?.role !== 'Admin' ? <div className="page-frame"><h1 className="page-title">此頁面僅供管理者使用</h1><Link href="/" className="btn btn-primary mt-5">返回材料趨勢分析儀表板</Link></div> : children}</div>
+      {account && status === 'authenticated' && <footer className="app-footer">{account.role === 'Admin' && <SecurityAuditPanel />}<ReportIssueButton /></footer>}
       <dialog ref={menu} className="nav-drawer" aria-labelledby="menu-title" onClick={(event) => { if (event.target === menu.current) menu.current?.close(); }}>
         <div className="flex items-center justify-between gap-4"><h2 id="menu-title" className="section-title">工作選單</h2><button className="btn btn-quiet" onClick={() => menu.current?.close()} aria-label="關閉主要選單">關閉</button></div>
         <p className="mt-2 break-words text-sm text-[var(--muted)]">{account?.role === 'Admin' ? '管理者' : account?.company} · {account?.name}</p>

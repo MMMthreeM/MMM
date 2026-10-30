@@ -1,3 +1,4 @@
+import { readUsers, orderColumns } from '@/lib/sheet-table';
 import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { getGoogleSheets } from '@/lib/google-sheets';
@@ -17,11 +18,12 @@ async function handleMutation(request: Request) {
 
     const sheets = await getGoogleSheets();
     const sheetId = process.env.GOOGLE_SHEET_ID;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Orders!A:Z' });
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Orders' });
     const rows = response.data.values;
     if (!rows) return NextResponse.json({ error: '找不到資料' }, { status: 404 });
 
     const headers = rows[0].map(h => String(h).trim());
+    orderColumns(headers);
     const idIdx = findColumn(headers, ['order_id', '單號']);
     const itemIdx = findColumn(headers, ['item_name', '材料', '品項']);
     const companyIdx = findColumn(headers, ['req_company', '工班', '公司']);
@@ -29,10 +31,10 @@ async function handleMutation(request: Request) {
 
     if (idIdx === -1) return NextResponse.json({ error: '找不到單號欄位' }, { status: 400 });
 
-    const users = (await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Users!A:D' })).data.values || [];
-    const currentUser = users.find((row) => row[0] === userEmail);
-    const company = currentUser?.[2];
-    if (!currentUser || !['Admin', 'User'].includes(String(currentUser[1])) || !company) return NextResponse.json({ error: '您的帳號尚未完成工班權限設定。' }, { status: 403 });
+    const users = (await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'Users' })).data.values || [];
+    const currentUser = readUsers(users).find(row => row.email.toLowerCase() === userEmail.toLowerCase());
+    const company = currentUser?.company;
+    if (!currentUser || !['Admin', 'User'].includes(String(currentUser.role)) || !company) return NextResponse.json({ error: '您的帳號尚未完成工班權限設定。' }, { status: 403 });
     const orderRows = rows.slice(1).filter((row) => row[idIdx] === orderId);
     if (!orderRows.length) return NextResponse.json({ error: '找不到該筆訂單。' }, { status: 404 });
     if (companyIdx === -1 || orderRows.some((row) => row[companyIdx] !== company)) return NextResponse.json({ error: '您沒有刪除此訂單的權限。' }, { status: 403 });

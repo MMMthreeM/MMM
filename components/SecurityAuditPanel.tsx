@@ -5,6 +5,7 @@ export default function SecurityAuditPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
   const retry = async () => {
     if (busy) return;
     setBusy(true); setError(''); setMessage('');
@@ -16,5 +17,5 @@ export default function SecurityAuditPanel() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : '連線失敗。'); }
     finally { setBusy(false); }
   };
-  return <section className="surface mt-8 p-5" aria-labelledby="audit-retry-title"><h2 className="section-title" id="audit-retry-title">稽核紀錄維護</h2><p className="field-hint mt-2">僅補寫待處理紀錄，不會重新送單、變更狀態或再次匯出報表。</p><button type="button" className="btn btn-secondary mt-4" disabled={busy} onClick={() => void retry()}>{busy ? '正在補寫…' : '補寫待處理稽核紀錄'}</button>{message && <p role="status" className="feedback-success mt-3">{message}</p>}{error && <p role="alert" className="feedback-error mt-3">{error}</p>}</section>;
+  return <div className="footer-tool audit-tool"><button type="button" className="report-issue-trigger" aria-expanded={open} aria-controls="audit-maintenance" onClick={() => setOpen(!open)}>稽核紀錄維護</button>{open && <div id="audit-maintenance" className="audit-maintenance"><p className="field-hint">僅補寫待處理紀錄，不會重新送單、變更狀態或再次匯出報表。</p><button type="button" className="btn btn-secondary mt-3" disabled={busy} onClick={() => void retry()}>{busy ? '正在補寫…' : '補寫待處理稽核紀錄'}</button>{message && <p role="status" className="feedback-success mt-3">{message}</p>}{error && <p role="alert" className="feedback-error mt-3">{error}</p>}</div>}</div>;
 }

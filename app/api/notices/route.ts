@@ -1,26 +1,18 @@
+import { sheetColumns } from '@/lib/sheet-table';
 import { NextResponse } from 'next/server';
 import { apiError, requireAccount } from '@/lib/access';
-
-const findColIdx = (headers: string[], keys: string[]) => {
-  return headers.findIndex(h => keys.some(k => h.toLowerCase().includes(k.toLowerCase())));
-};
 
 export async function GET() {
   try {
     const { sheets } = await requireAccount();
     const sheetId = process.env.GOOGLE_SHEET_ID;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'System_Notices!A:Z' });
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: 'System_Notices' });
     const rows = response.data.values;
     
-    if (!rows || rows.length <= 1) return NextResponse.json({ data: [] });
+    if (!rows) throw new Error('System_Notices headers missing');
 
     const headers = rows[0].map(h => String(h).trim());
-    const idx = {
-      content: findColIdx(headers, ['content', '內容', '公告內容']),
-      isActive: findColIdx(headers, ['is_active', '啟用', '是否啟用'])
-    };
-
-    if (idx.content === -1 || idx.isActive === -1) return NextResponse.json({ data: [] });
+    const idx = sheetColumns(headers, { content: ['Content','內容','公告內容'], isActive: ['Is_Active','啟用','是否啟用'] }, ['content','isActive'], 'System_Notices');
 
     // 💡 只抓出 Is_Active 寫著 TRUE 的那一列
     const activeNotices = rows.slice(1)

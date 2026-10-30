@@ -11,7 +11,7 @@
 2. 確認資料庫啟用適合正式資料的持久化，禁止自動 eviction，不能把鎖或待處理稽核鍵設到期，也不要任意清空資料庫。確認容量、備份、權限與用量告警；服務方案與費用由管理者確認。
 3. 從資料庫詳細頁複製 REST URL 與可寫入的 REST Token 到 Vercel 專案 Settings → Environment Variables：UPSTASH_REDIS_REST_URL、UPSTASH_REDIS_REST_TOKEN。Token 設為 Secret；只配置正確環境，不使用 Readonly Token，不放 NEXT_PUBLIC_，不貼進聊天或 Git。
 4. NEXTAUTH_URL 應是該環境的正式平台來源（含 https）。本機測試則對應本機網址與埠號。API 嚴格驗證 Origin；不要用萬用字元或信任任意子網域。其餘 Google／TG／CRON_SECRET 設定沿用。
-5. 確認 Audit_Logs!A1:F1 是 Log_ID、Timestamp、User_Email、Action、Target_Order_ID、Details。其他工作表不用新增欄位。Redis 僅存事件識別、時間、操作者、動作、目標單號、摘要與請求雜湊，不存整份下單內容／單價／金鑰。
+5. 確認 Audit_Logs 第一列包含 Log_ID、Timestamp、User_Email、Action、Target_Order_ID、Details，順序不限且不得重複。其他工作表不用新增欄位。Redis 僅存事件識別、時間、操作者、動作、目標單號、摘要與請求雜湊，不存整份下單內容／單價／金鑰。
 6. 先部署到獨立測試環境，完成以下驗收，再安排正式維護時段切換。切換時暫停舊版寫入、等待舊請求全部結束，確保沒有舊版本、舊自動化或手動 Sheets 編輯繞過新鎖。只切網址、不停止舊寫入並不能保證安全。
 
 ## 正式驗收

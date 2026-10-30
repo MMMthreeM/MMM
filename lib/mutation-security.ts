@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
 import { acquireWriteLock, consumeRate, saveAuditEvent, type AuditEvent } from '@/lib/security-store';
 import { flushPendingAudits } from '@/lib/audit-delivery';
+import { taipeiDateTime } from '@/lib/date-range';
 
 export const mutationAudit = new AsyncLocalStorage<{ details: string[] }>();
 export async function checkedMutationRequest(request: Request) {
@@ -34,7 +35,7 @@ export function secureMutation(handler: (request: Request) => Promise<Response>,
       const { account, sheets } = await requireAccount(options.admin);
       await consumeRate(account.email, options.action, options.limit ?? 20);
       unlock = await acquireWriteLock();
-      event = { id: `SEC-${randomUUID()}`, timestamp: new Date().toISOString(), email: account.email, action: options.action, target: String(checked.body.orderId || checked.body.existingOrderId || (checked.body.orderIds || []).join?.(',') || '').slice(0, 4000), details: `request_sha256=${checked.digest}`, outcome: 'started' };
+      event = { id: `SEC-${randomUUID()}`, timestamp: taipeiDateTime(), email: account.email, action: options.action, target: String(checked.body.orderId || checked.body.existingOrderId || (checked.body.orderIds || []).join?.(',') || '').slice(0, 4000), details: `request_sha256=${checked.digest}`, outcome: 'started' };
       // Persist intent BEFORE any business write; interruption leaves a recoverable unknown outcome.
       await saveAuditEvent(event);
       const context = { details: [] as string[] };

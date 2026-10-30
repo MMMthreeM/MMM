@@ -1,3 +1,4 @@
+import { readUsers } from '@/lib/sheet-table';
 import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
@@ -16,13 +17,13 @@ export async function requireAccount(adminOnly = false) {
   // Bound authenticated traffic before every request can consume a Sheets lookup.
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) await consumeRate(email, 'authenticated', 120);
   const sheets = await getGoogleSheets();
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Users!A:F' });
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Users' });
   const users = response.data.values ?? [];
-  const row = users.slice(1).find((user) => String(user[0]).toLowerCase() === email.toLowerCase());
-  if (!row || !['Admin', 'User'].includes(String(row[1]))) throw new AccessError('此帳號尚未取得平台使用權限。', 403);
-  if (adminOnly && row[1] !== 'Admin') throw new AccessError('此功能僅供管理者使用。', 403);
-  if (row[1] === 'User' && !row[2]) throw new AccessError('此帳號尚未設定所屬工班。', 403);
-  const account: Account = { email, role: row[1] as Account['role'], company: String(row[2] ?? ''), region: String(row[3] ?? ''), name: String(row[4] || email.split('@')[0]) };
+  const row = readUsers(users).find(user => user.email.toLowerCase() === email.toLowerCase());
+  if (!row || !['Admin', 'User'].includes(String(row.role))) throw new AccessError('此帳號尚未取得平台使用權限。', 403);
+  if (adminOnly && row.role !== 'Admin') throw new AccessError('此功能僅供管理者使用。', 403);
+  if (row.role === 'User' && !row.company) throw new AccessError('此帳號尚未設定所屬工班。', 403);
+  const account: Account = { email, role: row.role as Account['role'], company: String(row.company ?? ''), region: String(row.region ?? ''), name: String(row.name || email.split('@')[0]) };
   return { account, sheets, users };
 }
 

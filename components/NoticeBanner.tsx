@@ -20,7 +20,7 @@ export default function NoticeBanner() {
   if (!isVisible || notices.length === 0) return null;
 
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[#efd78f] bg-[#fff8dc] px-4 py-3 text-[#745200] shadow-sm sm:px-6">
+    <div className="notice-banner"><div className="notice-banner-inner">
       <div className="flex flex-col gap-1 flex-1">
         {notices.map((notice, idx) => (
           <div key={idx} className="flex items-center gap-2 text-sm font-bold">
@@ -33,9 +33,10 @@ export default function NoticeBanner() {
         onClick={() => setIsVisible(false)} 
         className="ml-4 px-2 font-bold text-[#9a7000] hover:text-[#5d4300]"
         title="關閉公告"
+        aria-label="關閉公告"
       >
         ✕
       </button>
-    </div>
+    </div></div>
   );
 }

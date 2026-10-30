@@ -60,7 +60,7 @@ export default function AdminOrderEditor({ group, onClose, onSaved }: { group: O
   return <dialog ref={dialog} className="action-dialog order-editor" aria-labelledby="edit-order-title" onCancel={(event) => { event.preventDefault(); close(); }}>
     <form noValidate onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <header className="editor-heading"><div><h2 id="edit-order-title" className="section-title" tabIndex={-1} autoFocus>編輯需求單</h2><p className="mt-2 font-semibold">{group.first.orderDate}　{group.first.reqCompany}</p><p className="order-reference">單號：{group.orderId}</p></div><span className={`status status-${orderPresentation(group).tone}`}>{orderPresentation(group).label}</span></header>
-      <p className="field-hint mt-3">儲存材料、數量與備註，保留目前進度及原申請資料。</p>
+      <p className="field-hint mt-3">儲存材料、數量與備註，保留目前需求狀態及原申請資料。</p>
       {error && <p role="alert" tabIndex={-1} data-editor-error className="feedback-error mt-4">{error}</p>}
       <div className="editor-lines">{items.map((item, index) => {
         const rule = matchMaterial(materials, item);

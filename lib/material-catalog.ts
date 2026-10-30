@@ -1,3 +1,4 @@
+import { materialColumns } from '@/lib/sheet-table';
 import { toMaterialRules, type MaterialRule } from '@/lib/order-domain';
 
 export type CatalogMaterial = MaterialRule & { tags: string[]; category: string; subcategory: string; aliases: string[]; orderHint: string; displayName: string };
@@ -5,13 +6,13 @@ const splitWords = (value: unknown) => String(value ?? '').split(/[,，\n]/).map
 
 // Explicitly whitelist public fields: Price stays on the server.
 export function publicMaterials(rows: unknown[][]): CatalogMaterial[] {
-  const headers = (rows[0] || []).map((value) => String(value).trim().toLowerCase());
-  const read = (row: unknown[], name: string) => String(row[headers.indexOf(name)] ?? '').trim();
+  const c = materialColumns(rows);
+  const read = (row: unknown[], column: number) => String(row[column] ?? '').trim();
   const rules = new Map(toMaterialRules(rows).map((rule) => [rule.id, rule]));
   return rows.slice(1).flatMap((row) => {
-    const rule = rules.get(String(row[0] ?? ''));
+    const rule = rules.get(String(row[c.id] ?? ''));
     if (!rule) return [];
-    return [{ ...rule, tags: splitWords(row[2]), category: read(row, 'category') || '其他材料', subcategory: read(row, 'subcategory'), aliases: splitWords(read(row, 'search_aliases')), orderHint: read(row, 'order_hint'), displayName: read(row, 'display_name') || rule.name }];
+    return [{ ...rule, tags: splitWords(row[c.tags]), category: read(row, c.category) || '其他材料', subcategory: read(row, c.subcategory), aliases: splitWords(read(row, c.aliases)), orderHint: read(row, c.hint), displayName: read(row, c.display) || rule.name }];
   });
 }
 

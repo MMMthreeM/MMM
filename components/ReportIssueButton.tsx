@@ -10,6 +10,11 @@ export default function ReportIssueButton() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  useEffect(() => {
+    if (!sent) return;
+    const timer = window.setTimeout(() => setSent(false), 6000);
+    return () => window.clearTimeout(timer);
+  }, [sent]);
   useEffect(() => { if (isOpen) dialog.current?.showModal(); else dialog.current?.close(); }, [isOpen]);
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -27,13 +32,13 @@ export default function ReportIssueButton() {
     } finally { setIsSubmitting(false); }
   };
   return <>
-    <footer className="app-footer">
+    <div className="footer-tool">
       {sent && <p className="report-sent" role="status">問題回報已送出。</p>}
       <button type="button" className="report-issue-trigger" onClick={() => { setError(''); setSent(false); setIsOpen(true); }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" strokeLinecap="round" /></svg>
         回報問題
       </button>
-    </footer>
+    </div>
     <dialog ref={dialog} className="action-dialog report-dialog" aria-labelledby="report-title" onCancel={(event) => { if (isSubmitting) event.preventDefault(); else setIsOpen(false); }}>
       <form noValidate onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
         <h2 id="report-title" className="section-title" tabIndex={-1} autoFocus>回報系統問題</h2>

@@ -1,3 +1,4 @@
+import { orderStatusLabel } from '@/lib/order-status';
 export type Account = { email: string; role: 'Admin' | 'User'; company: string; region: string; name: string };
 
 export type OrderRow = {
@@ -16,13 +17,13 @@ export function isReturnedOrder(group: OrderGroup) {
 
 export function orderPresentation(group: OrderGroup) {
   if (!group.consistent) return { label: '資料狀態不一致', tone: 'returned' };
-  if (isReturnedOrder(group)) return { label: '退回待修改', tone: 'returned' };
+  if (isReturnedOrder(group)) return { label: orderStatusLabel(group.status, true), tone: 'returned' };
   const statuses: Record<string, { label: string; tone: string }> = {
     編輯中: { label: '草稿', tone: 'draft' }, 處理中: { label: '待審核', tone: 'processing' },
     審核中: { label: '審核中', tone: 'review' }, 準備出貨: { label: '準備出貨', tone: 'shipping' },
     已送達: { label: '已送達', tone: 'delivered' },
   };
-  return statuses[group.status] ?? { label: group.status, tone: 'draft' };
+  return { label: orderStatusLabel(group.status), tone: statuses[group.status]?.tone || 'draft' };
 }
 
 export function groupOrders(rows: OrderRow[]): OrderGroup[] {

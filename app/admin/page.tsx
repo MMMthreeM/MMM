@@ -1,4 +1,5 @@
 'use client';
+import { FORMAL_STATUS_OPTIONS } from '@/lib/order-status';
 import { auditPendingNotice } from '@/lib/mutation-notice';
 
 
@@ -59,8 +60,8 @@ function ReviewContent() {
   const exportGroups = visible.filter((group) => group.consistent && group.status === '審核中');
   const canExportSelected = selectedGroups.length > 0 && selectedGroups.length <= 200 && selectedGroups.every((group) => ['審核中', '準備出貨', '已送達'].includes(group.status));
   const canApply = (status: OrderStatus) => selectedGroups.length > 0 && selectedGroups.every((group) => status === '處理中' ? ['處理中', '審核中', '準備出貨'].includes(group.status) : canAdminMoveStatus(group.status, status));
-  const choices = (key: 'reqCompany' | 'reqRegion' | 'vendor' | 'materialName') => [...new Set(orders.map((row) => row[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'));
-  const updateFilter = (key: keyof OrderFilters, value: string) => { setFilters((current) => ({ ...current, [key]: value })); setSelected(new Set()); };
+  const choices = (key: 'reqCompany' | 'reqRegion' | 'vendor' | 'materialName') => [...new Set(orders.filter(row => key !== 'reqCompany' || !filters.region || row.reqRegion === filters.region).map((row) => row[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'));
+  const updateFilter = (key: keyof OrderFilters, value: string) => { setFilters((current) => ({ ...current, [key]: value, ...(key === 'region' ? { company: '' } : {}) })); setSelected(new Set()); };
   useEffect(() => {
     if (allBox.current) allBox.current.indeterminate = selectedGroups.length > 0 && selectedGroups.length < selectable.length;
   }, [selectedGroups.length, selectable.length]);
@@ -97,11 +98,11 @@ function ReviewContent() {
     {message && <div role="status" className="feedback-success mb-5">{message}{file && <button className="mt-2 block font-bold underline" onClick={() => downloadFile(file)}>重新下載全部報表</button>}{vendorFiles.map((item) => <button key={item.vendor} className="mr-4 mt-2 font-bold underline" onClick={() => downloadFile(item)}>下載{item.vendor}報表</button>)}</div>}
     {error && <div className="feedback-error mb-5" role="alert">{error}<button className="ml-3 underline" onClick={() => void refresh()}>重新載入</button></div>}
     <FilterPanel count={Object.values(filters).filter(Boolean).length}><div className="filter-grid">
-      {[{ key: 'company', field: 'reqCompany', label: '工班' }, { key: 'region', field: 'reqRegion', label: '地區' }, { key: 'vendor', field: 'vendor', label: '廠商' }].map(({ key, field, label }) => <label key={key}><span className="form-label">{label}</span><select aria-label={label} className="form-control" value={filters[key as keyof OrderFilters] || ''} onChange={(event) => updateFilter(key as keyof OrderFilters, event.target.value)}><option value="">全部{label}</option>{choices(field as 'reqCompany' | 'reqRegion' | 'vendor' | 'materialName').map((value) => <option key={value}>{value}</option>)}</select></label>)}
+      {[{ key: 'region', field: 'reqRegion', label: '地區' }, { key: 'company', field: 'reqCompany', label: '工班' }, { key: 'vendor', field: 'vendor', label: '廠商' }].map(({ key, field, label }) => <label key={key}><span className="form-label">{label}</span><select aria-label={label} className="form-control" value={filters[key as keyof OrderFilters] || ''} onChange={(event) => updateFilter(key as keyof OrderFilters, event.target.value)}><option value="">全部{label}</option>{choices(field as 'reqCompany' | 'reqRegion' | 'vendor' | 'materialName').map((value) => <option key={value}>{value}</option>)}</select></label>)}
       <SearchSelect label="材料" value={filters.material || ''} options={choices('materialName').map((name) => ({ value: name, label: name }))} onChange={(value) => updateFilter('material', value)} emptyLabel="全部材料" />
-      <label><span className="form-label">狀態</span><select className="form-control" value={filters.status || ''} onChange={(event) => updateFilter('status', event.target.value)}><option value="">全部正式需求</option>{['處理中', '待審核', '退回待修改', '審核中', '準備出貨', '已送達'].map((value) => <option key={value} value={value}>{value === '處理中' ? '全部待處理（含退回）' : value}</option>)}</select></label>
-      <label><span className="form-label">開始日期</span><input type="date" className="form-control" value={filters.startDate || ''} max={filters.endDate || undefined} onChange={(event) => updateFilter('startDate', event.target.value)} /></label>
-      <label><span className="form-label">結束日期</span><input type="date" className="form-control" value={filters.endDate || ''} min={filters.startDate || undefined} onChange={(event) => updateFilter('endDate', event.target.value)} /></label>
+      <label><span className="form-label">需求狀態</span><select className="form-control" value={filters.status || ''} onChange={(event) => updateFilter('status', event.target.value)}>{FORMAL_STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <div className="date-range-fields" role="group" aria-label="需求日期範圍"><label><span className="form-label">開始日期</span><input type="date" className="form-control" value={filters.startDate || ''} max={filters.endDate || undefined} onChange={(event) => updateFilter('startDate', event.target.value)} /></label>
+      <label><span className="form-label">結束日期</span><input type="date" className="form-control" value={filters.endDate || ''} min={filters.startDate || undefined} onChange={(event) => updateFilter('endDate', event.target.value)} /></label></div>
       <label><span className="form-label">日期或單號</span><input className="form-control" placeholder="例如 2026/10/29；也可輸入單號" value={filters.search || ''} onChange={(event) => updateFilter('search', event.target.value)} /></label>
       <label><span className="form-label">排序</span><select className="form-control" value={sort} onChange={(event) => setSort(event.target.value)}><option value="asc">最早需求優先</option><option value="desc">最新需求優先</option></select></label>
       <button className="btn btn-quiet self-end" onClick={() => { setFilters({}); setSelected(new Set()); }}>清除篩選</button>
@@ -130,8 +131,8 @@ function ReviewContent() {
       </header>
       {group.first.returnNote && <p className="order-return-note">{group.first.returnNote}</p>}
       {!group.consistent && <p className="feedback-error m-4" role="alert">此單的材料狀態或工班不一致，暫停操作，請管理者確認原始資料。</p>}
-      <div className="order-items-header" aria-hidden="true"><span>材料品項／廠商</span><span>需求數量</span><span>備註與退回原因</span></div>
-      <ul>{group.items.map((item, index) => <li className="order-item" key={index}><div className="min-w-0"><p className="font-bold leading-6">{item.materialName}</p><p className="mt-1 text-sm text-[var(--muted)]">{item.vendor || '未指定廠商'}</p></div><p className="quantity-value">{item.quantity.toLocaleString('zh-TW')} <span>{item.unit}</span></p><div className="min-w-0 text-sm leading-6"><p className="break-words text-[var(--muted)]">{item.remarks || '無備註'}</p>{item.adminNote && <p className="mt-2 break-words text-[var(--danger)]">{item.adminNote}</p>}</div></li>)}</ul>
+      <div className="order-items-header review-material-item" aria-hidden="true"><span>材料品項與需求數量／廠商</span><span>備註與退回原因</span></div>
+      <ul>{group.items.map((item, index) => <li className="order-item review-material-item" key={index}><div className="min-w-0"><p className="font-bold leading-6">{item.materialName}：<span className="history-inline-quantity">{item.quantity.toLocaleString('zh-TW')} <small>{item.unit}</small></span></p><p className="mt-1 text-sm text-[var(--muted)]">{item.vendor || '未指定廠商'}</p></div><div className="min-w-0 text-sm leading-6"><p className="break-words text-[var(--muted)]">{item.remarks || '無備註'}</p>{item.adminNote && <p className="mt-2 break-words text-[var(--danger)]">{item.adminNote}</p>}</div></li>)}</ul>
     </section>)}</div>}
     {editing && <AdminOrderEditor group={editing} onClose={() => setEditing(null)} onSaved={async (notice) => { setSelected(new Set()); setMessage('管理員修改已儲存，單據進度維持不變。' + (notice || '')); await refresh(); }} />}
     <Pagination {...pagination} label="審核需求單" targetId="review-results" /><BackToTop />
@@ -149,4 +150,10 @@ function ReviewContent() {
   </main>;
 }
 
-export default function ReviewPage() { return <Suspense fallback={<p className="page-frame" role="status">正在讀取篩選條件…</p>}><ReviewContent /></Suspense>; }
+function ReviewEntry() {
+  const params = useSearchParams();
+  // Client navigation can reuse this route; URL changes start a fresh filter/selection scope.
+  return <ReviewContent key={params.toString()} />;
+}
+
+export default function ReviewPage() { return <Suspense fallback={<p className="page-frame" role="status">正在讀取篩選條件…</p>}><ReviewEntry /></Suspense>; }

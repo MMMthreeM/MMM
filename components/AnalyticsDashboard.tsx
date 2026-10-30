@@ -1,9 +1,10 @@
 'use client';
+import { FORMAL_STATUS_OPTIONS } from '@/lib/order-status';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useAccount } from '@/components/AppShell';
 import { useOrders } from '@/components/useOrders';
-import { summarizeMaterials, groupOrders } from '@/lib/order-view';
+import { summarizeMaterials, groupOrders, filterOrderGroups } from '@/lib/order-view';
 import SearchSelect from '@/components/SearchSelect';
 import FilterPanel from '@/components/FilterPanel';
 import Pagination, { usePagination } from '@/components/Pagination';
@@ -12,27 +13,29 @@ import BackToTop from '@/components/BackToTop';
 import MaterialTrend from '@/components/MaterialTrend';
 import AnalyticsOrders from '@/components/AnalyticsOrders';
 
-type DrillStep = { view: string; material: string; company: string; start: string; end: string; status: string; scrollY: number };
+type DrillStep = { view: string; material: string; company: string; region: string; start: string; end: string; status: string; scrollY: number };
 const viewLabels: Record<string, string> = { overview: '材料總覽', trend: '材料趨勢', companies: '工班明細', orders: '期間訂單明細' };
 
 export default function AnalyticsDashboard() {
   const account = useAccount(), admin = account?.role === 'Admin';
   const { orders, loading, error, refresh } = useOrders(admin);
   const [material, setMaterial] = useState(''), [company, setCompany] = useState(''), [start, setStart] = useState(''), [end, setEnd] = useState('');
+  const [region, setRegion] = useState('');
   const [view, setView] = useState('trend');
   const [monthSelection, setMonthSelection] = useState({ scope: '', month: '' });
   const [status, setStatus] = useState('');
   const [steps, setSteps] = useState<DrillStep[]>([]);
   const formal = orders.filter(row => row.status !== '編輯中');
   const invalid = Boolean(start && end && start > end);
-  const filtered = invalid ? [] : formal.filter(row => (!status || row.status === status) && (!material || row.materialName === material) && (!admin || !company || row.reqCompany === company) && (!start || row.orderDate.slice(0,10) >= start) && (!end || row.orderDate.slice(0,10) <= end));
+  const scopedIds = new Set(filterOrderGroups(groupOrders(formal), { status, region: admin ? region : '', company: admin ? company : '', startDate: start, endDate: end }).map(group => group.orderId));
+  const filtered = invalid ? [] : formal.filter(row => scopedIds.has(row.orderId) && (!material || row.materialName === material));
   const summary = summarizeMaterials(filtered);
-  const scope = JSON.stringify([material,company,start,end,view,status]);
+  const scope = JSON.stringify([material,company,region,start,end,view,status]);
   const materialPage = usePagination(summary, scope, 20);
   const matchingIds = new Set(filtered.map(row => row.orderId));
   const groups = groupOrders(formal).filter(group => matchingIds.has(group.orderId)).sort((a,b) => b.first.orderDate.localeCompare(a.first.orderDate));
   const orderPage = usePagination(groups, scope, 10);
-  const companies = [...new Set(formal.map(row => row.reqCompany))].sort();
+  const companies = [...new Set(formal.filter(row => !region || row.reqRegion === region).map(row => row.reqCompany))].sort();
   const companyPage = usePagination([...new Set(filtered.map(row => row.reqCompany))].sort(), scope, 20);
   const months = new Map<string, typeof filtered>();
   filtered.forEach(row => { const key = row.orderDate.slice(0,7); if (/^\d{4}-\d{2}$/.test(key)) months.set(key,[...(months.get(key)||[]),row]); });
@@ -46,26 +49,27 @@ export default function AnalyticsDashboard() {
   const monthIds = new Set(monthRows.map(row => row.orderId));
   const monthGroups = groups.filter(group => monthIds.has(group.orderId));
   const monthPage = usePagination(monthGroups, JSON.stringify([scope, selectedMonth]), 10);
-  const remember = () => setSteps(previous => [...previous, { view, material, company, start, end, status, scrollY: window.scrollY }]);
+  const remember = () => setSteps(previous => [...previous, { view, material, company, region, start, end, status, scrollY: window.scrollY }]);
   const drill = (name: string) => { if (view !== 'trend') remember(); setMaterial(name); setView('trend'); };
   const back = () => {
     const previous = steps.at(-1);
     if (previous) {
-      setView(previous.view); setMaterial(previous.material); setCompany(previous.company); setStart(previous.start); setEnd(previous.end); setStatus(previous.status); setSteps(current => current.slice(0, -1));
+      setView(previous.view); setMaterial(previous.material); setCompany(previous.company); setRegion(previous.region); setStart(previous.start); setEnd(previous.end); setStatus(previous.status); setSteps(current => current.slice(0, -1));
       requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: previous.scrollY, behavior: 'instant' })));
     } else { setMaterial(''); setView('overview'); }
   };
   const showPeriodOrders = () => { remember(); setView('orders'); };
   const periodLabel = start || end ? (start || '最早需求') + ' — ' + (end || '最新需求') : '全部已送出的需求';
   return <main className="page-frame analytics-frame">
-    <div className="page-heading"><div><h1 className="page-title">{admin ? '各工班材料需求儀表板' : `${account?.company || '工班'}材料需求儀表板`}</h1><p className="page-subtitle">選取材料查看叫料趨勢，再下探工班與訂單。</p></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></div>
+    <div className="page-heading"><div><h1 className="page-title">{admin ? '各工班材料趨勢分析儀表板' : `${account?.company || '工班'}材料趨勢分析儀表板`}</h1><p className="page-subtitle">選取材料查看叫料趨勢，再下探工班與訂單。</p></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></div>
     <div className="analytics-material-filter"><SearchSelect label="材料" value={material} options={[...new Set(formal.map(row=>row.materialName))].map(name=>({value:name,label:name}))} onChange={value=>{if(value)drill(value);else {setMaterial('');setSteps([]);}}} emptyLabel="全部材料" /></div>
-    <FilterPanel count={[company,start,end,status].filter(Boolean).length}><div className="filter-grid">
+    <FilterPanel count={[region,company,start,end,status].filter(Boolean).length}><div className="filter-grid">
+      {admin && <label><span className="form-label">地區</span><select className="form-control" value={region} onChange={event => { setRegion(event.target.value); setCompany(''); }}><option value="">全部地區</option>{[...new Set(formal.map(row => row.reqRegion).filter(Boolean))].sort().map(name => <option key={name}>{name}</option>)}</select></label>}
       {admin && <label><span className="form-label">工班</span><select className="form-control" value={company} onChange={e=>setCompany(e.target.value)}><option value="">全部工班</option>{companies.map(name=><option key={name}>{name}</option>)}</select></label>}
-      <label><span className="form-label">開始日期</span><input type="date" className="form-control" value={start} onChange={e=>setStart(e.target.value)} /></label>
-      <label><span className="form-label">結束日期</span><input type="date" className="form-control" value={end} onChange={e=>setEnd(e.target.value)} /></label>
-      <label><span className="form-label">需求狀態</span><select className="form-control" value={status} onChange={e=>setStatus(e.target.value)}><option value="">全部正式需求</option>{['處理中','審核中','準備出貨','已送達'].map(value=><option key={value}>{value}</option>)}</select></label>
-      <button className="btn btn-quiet" onClick={()=>{setMaterial('');setCompany('');setStart('');setEnd('');setStatus('');setView('overview');setSteps([]);}}>清除篩選</button>
+      <div className="date-range-fields" role="group" aria-label="需求日期範圍"><label><span className="form-label">開始日期</span><input type="date" className="form-control" value={start} onChange={e=>setStart(e.target.value)} /></label>
+      <label><span className="form-label">結束日期</span><input type="date" className="form-control" value={end} onChange={e=>setEnd(e.target.value)} /></label></div>
+      <label><span className="form-label">需求狀態</span><select className="form-control" value={status} onChange={e=>setStatus(e.target.value)}>{FORMAL_STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <button className="btn btn-quiet" onClick={()=>{setMaterial('');setCompany('');setRegion('');setStart('');setEnd('');setStatus('');setView('overview');setSteps([]);}}>清除篩選</button>
     </div></FilterPanel>
     {invalid && <p role="alert" className="feedback-error">開始日期不能晚於結束日期。</p>}
     {error && <p role="alert" className="feedback-error">{error}<button className="btn btn-quiet" onClick={()=>void refresh()}>重新載入</button></p>}
@@ -77,7 +81,7 @@ export default function AnalyticsDashboard() {
       {!filtered.length ? <div className="surface empty-state">沒有符合條件的需求，請調整材料或日期。</div> : <>
         {view==='overview' && <section id="material-statistics" className="surface"><div className="p-5"><h2 className="section-title">材料需求明細統計</h2><p className="field-hint">點選材料查看趨勢。</p></div><div className="table-scroll"><table className="data-table w-full text-left"><thead><tr><th>材料</th><th>叫料次數</th><th>需求量</th><th>單位</th></tr></thead><tbody>{materialPage.items.map(row=><tr key={JSON.stringify([row.name,row.unit])}><th className="material-name"><button className="data-link" onClick={()=>drill(row.name)}>{row.name}</button></th><td>{row.frequency} 次</td><td>{row.quantity.toLocaleString('zh-TW')}</td><td>{row.unit}</td></tr>)}</tbody></table></div><Pagination {...materialPage} label="材料統計" targetId="material-statistics" /></section>}
         {view==='trend' && <>
-          <MaterialTrend key={JSON.stringify([material,company,start,end,status])} timeline={timeline} series={series} material={material} selectedMonth={selectedMonth} onSelect={month => setMonthSelection({ scope, month })} />
+          <MaterialTrend key={JSON.stringify([material,company,region,start,end,status])} timeline={timeline} series={series} material={material} selectedMonth={selectedMonth} onSelect={month => setMonthSelection({ scope, month })} />
           <section className="surface trend-orders" id="trend-orders" aria-labelledby="trend-orders-title">
             <div className="trend-order-heading"><div><h2 id="trend-orders-title" className="section-title">{selectedMonth.replace('-', ' 年 ')} 月的需求單</h2><p className="field-hint">{monthGroups.length} 張需求單；保留整單材料，符合篩選的材料以粗體顯示。</p></div><div className="trend-order-tools"><div className="trend-month-totals">{(material ? summarizeMaterials(monthRows) : []).map(row => <span key={JSON.stringify([row.name,row.unit])}>{material ? '' : row.name+'：'}<strong>{row.quantity.toLocaleString('zh-TW')} {row.unit}</strong></span>)}</div><button type="button" className="btn btn-secondary" onClick={showPeriodOrders}>查看整段期間訂單</button></div></div>
             {!monthGroups.length ? <p className="empty-state">這個月沒有符合條件的需求單，可選擇其他月份。</p> : <AnalyticsOrders groups={monthPage.items} admin={admin} material={material} />}

@@ -38,7 +38,7 @@ function harness(options = {}) {
       state.orders = updated; state.writes.push(clone(requestBody)); return { data: {} };
     },
     values: {
-    get: async ({ range }) => {if(range==='Orders!A:AZ' && options.onOrderRead)await options.onOrderRead();return { data: { values: clone(range.startsWith('Audit_Logs!') ? state.auditRows : range.startsWith('Users!') ? users : range.startsWith('Materials!') ? materialRows : range === 'Orders!1:1' ? [state.orders[0]] : state.orders) } };},
+    get: async ({ range }) => {if(range==='Orders' && options.onOrderRead)await options.onOrderRead();return { data: { values: clone(range.startsWith('Audit_Logs') ? state.auditRows : range.startsWith('Users') ? users : range.startsWith('Materials') ? (options.materialRows || materialRows) : range.startsWith('System_Notices') ? (options.notices || [['Content','Is_Active']]) : range === 'Orders!1:1' ? [state.orders[0]] : state.orders) } };},
     batchUpdate: async ({ requestBody }) => {
       state.writes.push(clone(requestBody));
       for (const update of requestBody.data) {
@@ -48,11 +48,12 @@ function harness(options = {}) {
       }
       return { data: {} };
     },
-    append: async ({ range, requestBody, valueInputOption }) => { if(range.startsWith('Audit_Logs!')) {if(options.failAudit)throw new Error('audit unavailable');state.auditRows.push(...clone(requestBody.values));return {data:{}};} state.writes.push({ valueInputOption }); state.orders.push(...requestBody.values); return { data: {} }; },
+    append: async ({ range, requestBody, valueInputOption }) => { if(range.startsWith('Audit_Logs')) {if(options.failAudit)throw new Error('audit unavailable');state.auditRows.push(...clone(requestBody.values));return {data:{}};} state.writes.push({ valueInputOption }); state.orders.push(...requestBody.values); return { data: {} }; },
   } } };
   const cache = new Map();
   function load(name) {
     if (name === 'next/server') return { NextResponse: { json: (body, init) => new Response(JSON.stringify(body), { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } }) } };
+    if (name === 'next-auth') return config => config;
     if (name === 'next-auth/next') return { getServerSession: async () => state.email ? { user: { email: state.email } } : null };
     if (name === 'next/navigation') return { unstable_rethrow: () => {} };
     if (name === '@/lib/google-sheets') return { getGoogleSheets: async () => sheets };
@@ -72,6 +73,155 @@ function harness(options = {}) {
 }
 
 const request = (body, method = 'POST') => new Request('http://localhost/api/test', { method, headers: { 'Content-Type': 'application/json', Origin:'http://localhost', 'Sec-Fetch-Site':'same-origin' }, body: JSON.stringify(body) });
+
+const reorderTable = (rows, offset = 0) => {
+  const order = rows[0].map((_, i) => i).reverse();
+  return rows.map((row, index) => [...Array.from({length: offset}, (_, i) => index ? '' : `Extra_${i}`), ...order.map(i => row[i] ?? '')]);
+};
+const namedCell = (table, row, name) => row[table[0].indexOf(name)];
+
+test('shared request status labels and grouped filters distinguish pending review, returned, reviewing and resubmitted orders', () => {
+  const {load}=harness();
+  const {FORMAL_STATUS_OPTIONS,orderStatusLabel}=load('@/lib/order-status');
+  const {groupOrders,filterOrderGroups}=load('@/lib/order-view');
+  const rows=[{orderId:'P',status:'處理中',reqCompany:'甲',reqRegion:'高雄',orderDate:'2026-10-31',returnNote:'',adminNote:''},{orderId:'R',status:'處理中',reqCompany:'乙',reqRegion:'台南',orderDate:'2026-10-31',returnNote:'請修改',adminNote:''},{orderId:'S',status:'處理中',reqCompany:'甲',reqRegion:'高雄',orderDate:'2026-10-31',returnNote:'[已重送] 舊原因',adminNote:''}];
+  const groups=groupOrders(rows);
+  assert.deepEqual(filterOrderGroups(groups,{status:'待審核'}).map(g=>g.orderId),['P','S']);
+  assert.deepEqual(filterOrderGroups(groups,{status:'退回待修改',region:'台南'}).map(g=>g.orderId),['R']);
+  assert.equal(filterOrderGroups(groups,{status:'處理中'}).length,3);
+  assert.equal(orderStatusLabel('編輯中'),'草稿');assert.equal(orderStatusLabel('處理中',true),'退回待修改');
+  assert(FORMAL_STATUS_OPTIONS.some(option=>option.value==='待審核'));
+  assert(FORMAL_STATUS_OPTIONS.some(option=>option.value==='退回待修改'));
+});
+
+test('all live sheets tolerate reordered columns and columns beyond the old read windows across auth, draft, review, export, notices and audit', async () => {
+  const options = { materialRows: reorderTable(materialRows, 30), notices: reorderTable([['Content','Is_Active'], ['顯示公告','TRUE'], ['隱藏公告','FALSE']], 30) };
+  const {load,state,users,sheets} = harness(options);
+  users[2][2] = '昇毅'; users.splice(0, users.length, ...reorderTable(users, 30));
+  state.orders = reorderTable(state.orders, 30);
+  state.auditRows = reorderTable(state.auditRows, 30);
+  state.email = 'user@example.test';
+  const auth = load('@/app/api/auth/[...nextauth]/route').GET;
+  assert.equal(await auth.callbacks.signIn({user:{email:state.email},profile:{email_verified:true}}), true);
+  assert.equal(await auth.callbacks.signIn({user:{email:'unknown@example.test'}}), false);
+  const account = await load('@/lib/access').requireAccount();
+  assert.equal(account.account.company,'昇毅'); assert.equal(account.account.role,'User');
+  const materials = await (await load('@/app/api/materials/route').GET()).json();
+  assert.equal(materials.data[0].id,'M1'); assert.equal(materials.data[0].minQty,100);
+  assert(!JSON.stringify(materials).includes('Price'));
+  assert.deepEqual((await (await load('@/app/api/notices/route').GET()).json()).data,['顯示公告']);
+  const item = { originalId:'M2', materialName:'1.25mm2-1C絞線(綠色)', vendor:'伸泰',unit:'M',quantity:100 };
+  const post = load('@/app/api/orders/route').POST;
+  const created = await post(request({items:[item],status:'編輯中',draftName:'重排草稿'}));
+  assert.equal(created.status,200);const {orderId}=await created.json();
+  const ownRow=()=>state.orders.slice(1).find(row=>namedCell(state.orders,row,'Order_ID')===orderId);
+  assert.equal(namedCell(state.orders,ownRow(),'Req_Company'),'昇毅');
+  assert.equal((await post(request({items:[{...item,quantity:200}],status:'編輯中',draftName:'更新重排草稿',existingOrderId:orderId}))).status,200);
+  assert.equal(namedCell(state.orders,ownRow(),'Quantity'),200);
+  assert.equal((await load('@/app/api/orders/edit-item/route').PATCH(request({orderId,newStatus:'處理中'},'PATCH'))).status,200);
+  state.email='admin@example.test';
+  assert.equal((await load('@/app/api/admin/update-status/route').PATCH(request({orderIds:[orderId],status:'審核中'},'PATCH'))).status,200);
+  assert.equal(namedCell(state.orders,ownRow(),'Status'),'審核中');
+  assert(state.notifications.some(([chat])=>chat==='user-chat'));
+  const loaded=await load('@/lib/order-sheet').loadOrderSheet(sheets);
+  const line=loaded.rows.find(row=>row.orderId===orderId);
+  assert.equal((await load('@/app/api/admin/edit-order/route').PATCH(request({orderId,expectedStatus:'審核中',expectedLineIds:[line.lineId],items:[{...item,quantity:200,lineId:line.lineId,remarks:'依表頭編輯'}]},'PATCH'))).status,200);
+  assert.equal(namedCell(state.orders,ownRow(),'Remarks'),'依表頭編輯');
+  const exported=await load('@/app/api/admin/export/route').POST(request({scope:'selected',orderIds:[orderId]}));
+  assert.equal(exported.status,200); assert.equal(namedCell(state.orders,ownRow(),'Status'),'準備出貨');
+  const file=(await exported.json()).files.find(file=>file.vendor==='伸泰');
+  const book=new ExcelJS.Workbook();await book.xlsx.load(Buffer.from(file.fileContent,'base64'));
+  assert.equal(book.worksheets[0].getCell('J4').value,200);
+  const audit=state.auditRows.at(-1);
+  assert.match(namedCell(state.auditRows,audit,'Details'),/completed/);
+  assert.equal(namedCell(state.auditRows,audit,'User_Email'),'admin@example.test');
+  assert.match(namedCell(state.auditRows,audit,'Timestamp'),/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  state.email='user@example.test';
+  const another=await post(request({items:[item],status:'編輯中',draftName:'可刪除草稿'}));
+  const anotherId=(await another.json()).orderId;
+  assert.equal((await load('@/app/api/orders/delete-item/route').DELETE(request({orderId:anotherId,deleteType:'order'},'DELETE'))).status,200);
+  assert(!state.orders.some(row=>namedCell(state.orders,row,'Order_ID')===anotherId));
+});
+
+test('missing, duplicate and ambiguous headers fail closed instead of falling back to positions', async () => {
+  const {load,users,state}=harness();
+  const {headerColumn,materialColumns}=load('@/lib/sheet-table');
+  assert.equal(headerColumn(['REPORT_NAME',' ITEM_NAME '],['Name','Item_Name']),1);
+  assert.throws(()=>headerColumn(['Role',' role '],['Role']),/重複/);
+  assert.throws(()=>headerColumn(['Name','Item_Name'],['Name','Item_Name']),/同義/);
+  assert.throws(()=>materialColumns([['ID','Name']]),/必要表頭/);
+  users[0][1]='Missing_Role';
+  await assert.rejects(load('@/lib/access').requireAccount(),/Role/);
+  assert.equal(state.writes.length,0);
+  const h=harness();h.state.orders[0][10]='Missing_Status';
+  const rejected=await h.load('@/app/api/orders/route').POST(request({items:[{materialName:'電線',unit:'M',vendor:'材料商',originalId:'M1',quantity:100}],status:'處理中'}));
+  assert.equal(rejected.status,409);assert.equal(h.state.writes.length,0);
+});
+
+test('text ordering preserves unresolved lines and notes, converts explicit length multipliers without assuming box sizes', () => {
+  const { parseTextOrder, equivalentUnit, textLineError } = harness().load('@/lib/text-order');
+  const material = { id: 'wire', name: '2 mm2*1C電線(黑色)', displayName: '黑色電線', unit: 'M', minQty: 100, stepQty: 100, aliases: [] };
+  const result = parseTextOrder('2 mm2*1C電線(黑色)- 100M*5卷\n---\n1、LED燈泡 75W白光 *1箱\n【每棧板不超過850公斤】\n規格待確認\n1.25mm2電線：20,000 M', [material]);
+  assert.equal(result.lines.length, 4);
+  assert.equal(result.lines[0].name, material.name);
+  assert.equal(result.lines[0].quantity, 500);
+  assert.equal(result.lines[0].unit, 'M');
+  assert.equal(result.lines[0].candidates[0], 'wire');
+  assert.equal(result.lines[1].quantity, 1);
+  assert.equal(result.lines[1].unit, '箱');
+  assert.equal(result.lines[2].quantity, null);
+  assert.equal(result.lines[3].name, '1.25mm2電線');
+  assert.equal(result.lines[3].quantity, 20000);
+  assert.match(result.notes, /850公斤/);
+  assert.notEqual(equivalentUnit('箱'), equivalentUnit('個'));
+  assert.equal(equivalentUnit('只'), equivalentUnit('個'));
+  assert.match(textLineError(material, 101, ''), /倍數/);
+  assert.equal(textLineError(material, 500, result.notes), '');
+  assert.match(textLineError({ ...material, requiresRemarks: true }, 500, ''), /備註/);
+  assert.match(textLineError(material, 500, '字'.repeat(501)), /500/);
+  assert.throws(() => parseTextOrder('字'.repeat(12001), []), /12,000/);
+  assert.throws(() => parseTextOrder(Array(101).fill('電線：1M').join('\n'), []), /100/);
+});
+
+test('text quantity suggestions apply minimum times source count on unit mismatch without concealing invalid same-unit amounts', () => {
+  const { suggestedTextQuantity, textLineError } = harness().load('@/lib/text-order');
+  const material = { unit: '個', minQty: 100, stepQty: 100 };
+  assert.equal(suggestedTextQuantity(material, { quantity: 3, unit: '箱' }), '300');
+  assert.equal(suggestedTextQuantity(material, { quantity: null, unit: '' }), '100');
+  assert.equal(suggestedTextQuantity(material, { quantity: 50, unit: '只' }), '50');
+  assert.match(textLineError(material, 50, ''), /100/);
+  assert.equal(suggestedTextQuantity(material, { quantity: Number.MAX_SAFE_INTEGER, unit: '箱' }), '');
+});
+
+test('audit timestamps use Taiwan minute format for new events and pending ISO events', async () => {
+  const { load, state, coordination, sheets } = harness();
+  assert.equal(load('@/lib/date-range').taipeiDateTime(Date.parse('2026-10-30T15:16:59Z')), '2026-10-30 23:16');
+  const response = await load('@/app/api/orders/route').POST(request({ items: [{ materialName: '電線', unit: 'M', vendor: '材料商', originalId: 'M1', quantity: 100 }], status: '處理中' }));
+  assert.equal(response.status, 200);
+  assert.match(state.auditRows[1][1], /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(state.auditRows[1][1], state.orders.at(-1)[1]);
+  const event = { id: 'pending-utc', timestamp: '2026-10-30T15:16:59Z', email: 'test', action: 'test', target: '', details: '', outcome: 'completed' };
+  coordination.events.set(event.id, event); coordination.pending.add(event.id);
+  await load('@/lib/audit-delivery').flushPendingAudits(sheets);
+  assert.equal(state.auditRows.find(row => row[0] === event.id)[1], '2026-10-30 23:16');
+});
+
+test('explicit report names and historical export aliases preserve template quantities, prices and validation', async () => {
+  const { load } = harness();
+  const catalog = [['ID','Name','Tags','Vendor','Unit','Min','Step','Extra','Price','Report_Name','Export_Aliases'], ['R1','好讀的綠色電線','','伸泰','M',100,100,'',5,'1.25mm2-1C絞線(綠色)','歷史綠線']];
+  const rows = ['好讀的綠色電線', '歷史綠線'].map(materialName => ({ materialName, quantity: 100, unit: 'M', vendor: '伸泰', reqCompany: '昇毅', orderId: 'R1', remarks: '' }));
+  const files = await load('@/lib/vendor-report').buildVendorReports(rows, catalog);
+  const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(files.find(file => file.vendor === '伸泰').buffer);
+  const sheet = workbook.getWorksheet('維運材料總表');
+  assert.equal(sheet.getCell('J4').value, 200); assert.equal(sheet.getCell('E4').value, 5); assert.equal(sheet.getCell('I4').result, 1000);
+  await assert.rejects(() => load('@/lib/vendor-report').buildVendorReports([{...rows[0], quantity: 1}], catalog), /數量或備註規則/);
+  await assert.rejects(() => load('@/lib/vendor-report').buildVendorReports([{...rows[0], unit: '個'}], catalog), /範本/);
+  const conflict = [...catalog, ['R2','另一材料','','伸泰','M',1,1,'',5,'另一個範本材料','歷史綠線']];
+  assert.throws(() => load('@/lib/material-report-map').materialReportMap(conflict)(rows[1]), /多個報表名稱/);
+  const publicCatalog = load('@/lib/material-catalog').publicMaterials(catalog);
+  assert(!JSON.stringify(publicCatalog).includes('Report_Name'));
+  assert(!JSON.stringify(publicCatalog).includes('歷史綠線'));
+});
 
 test('new-order material messages preserve every item and safely split long HTML notifications', () => {
   const { load } = harness();
@@ -339,13 +489,13 @@ test('admin editing blocks users, locked stages, stale line versions and failed 
 
 test('vendor mapping uses the first duplicate template row and maps 鶴峻 to original template columns', async () => {
   const { load } = harness();
-  const reports = await load('@/lib/vendor-report').buildVendorReports([{ orderId: 'DUP', materialName: '小基座桶維修孔蓋板', unit: '個', vendor: '益詮', reqCompany: '鶴峻', quantity: 2 }], []);
+  const reports = await load('@/lib/vendor-report').buildVendorReports([{ orderId: 'DUP', materialName: '小基座桶維修孔蓋板', unit: '個', vendor: '益詮', reqCompany: '鶴峻', quantity: 2 }], [materialRows[0]]);
   const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(reports.find((file) => file.vendor === '益詮').buffer);
   const sheet = workbook.worksheets[0];
   assert.equal(sheet.getCell('N63').value, 2); assert.equal(sheet.getCell('N108').value, null);
   assert.equal(sheet.getCell('H63').result, 2); assert.equal(sheet.getCell('H108').result ?? '', '');
   assert.equal(sheet.rowCount, 181);
-  await assert.rejects(load('@/lib/vendor-report').buildVendorReports([{ orderId: 'BAD', materialName: '不存在', unit: '個', vendor: '益詮', reqCompany: '鶴峻', quantity: 2 }], []), /不在益詮範本/);
+  await assert.rejects(load('@/lib/vendor-report').buildVendorReports([{ orderId: 'BAD', materialName: '不存在', unit: '個', vendor: '益詮', reqCompany: '鶴峻', quantity: 2 }], [materialRows[0]]), /不在益詮範本/);
 });
 
 test('daily review endpoint authenticates, separates returned orders and sends to topic 30', async (context) => {

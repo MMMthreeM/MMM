@@ -1,3 +1,4 @@
+import { orderStatusLabel } from '@/lib/order-status';
 import { AccessError } from '@/lib/access';
 import { canAdminMoveStatus, columnLetter, type OrderStatus } from '@/lib/order-domain';
 import { loadOrderSheet } from '@/lib/order-sheet';
@@ -23,7 +24,7 @@ export async function updateOrderStatuses(sheets: Awaited<ReturnType<typeof getG
     const allowed = status === '處理中'
       ? ['處理中', '審核中', '準備出貨'].includes(group.status)
       : canAdminMoveStatus(group.status, status);
-    if (!allowed) throw new AccessError(`${group.orderId} 無法由「${group.status}」變更為「${status}」。`, 409);
+    if (!allowed) throw new AccessError(`${group.orderId} 無法由「${orderStatusLabel(group.status)}」變更為「${orderStatusLabel(status)}」。`, 409);
   }
   let nextColumn = headers.length;
   const adminColumn = columns.adminUser < 0 ? nextColumn++ : columns.adminUser;

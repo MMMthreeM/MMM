@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
 import { loadOrderSheet } from '@/lib/order-sheet';
 import { toMaterialRules, validateItems, type OrderItemInput } from '@/lib/order-domain';
-import { groupOrders } from '@/lib/order-view';
+import { groupOrders, orderPresentation } from '@/lib/order-view';
 
 type EditItem = OrderItemInput & { lineId?: string };
 
@@ -15,9 +15,9 @@ async function handleMutation(request: Request) {
     const sheet = await loadOrderSheet(sheets);
     const group = groupOrders(sheet.rows).find((item) => item.orderId === body.orderId);
     if (!group) throw new AccessError('找不到此需求單。', 404);
-    if (!group.consistent || !['處理中', '審核中'].includes(group.status)) throw new AccessError('管理員只能修改處理中或審核中的完整需求單。', 409);
+    if (!group.consistent || !['處理中', '審核中'].includes(group.status)) throw new AccessError('管理員只能修改待審核、退回待修改或審核中的完整需求單。', 409);
     if (group.status !== body.expectedStatus || JSON.stringify(group.items.map((item) => item.lineId).sort()) !== JSON.stringify([...body.expectedLineIds].sort())) throw new AccessError('需求單已被更新，請重新整理後再編輯。', 409);
-    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials!A:N' });
+    const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials' });
     const validation = validateItems(body.items, toMaterialRules(materials.data.values ?? []));
     if (validation) throw new AccessError(validation, 400);
     const items = body.items as EditItem[];
@@ -52,7 +52,7 @@ async function handleMutation(request: Request) {
         ];
     // A single Sheets batch validates all changes before applying the edit.
     await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEET_ID, requestBody: { requests } });
-    try { const { logAudit } = await import('@/lib/audit'); await logAudit(account.email, '管理員編輯需求單', body.orderId, `材料筆數 ${matching.length} → ${newRows.length}；維持${group.status}`); }
+    try { const { logAudit } = await import('@/lib/audit'); await logAudit(account.email, '管理員編輯需求單', body.orderId, `材料筆數 ${matching.length} → ${newRows.length}；維持${orderPresentation(group).label}`); }
     catch (error) { console.error('編輯稽核紀錄失敗', error); }
     return NextResponse.json({ status: 'success', orderId: body.orderId });
   } catch (error) {

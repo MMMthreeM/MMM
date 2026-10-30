@@ -1,11 +1,13 @@
+import { materialColumns } from '@/lib/sheet-table';
 import { canonicalMaterialText, canonicalVendor, materialIdentity } from '@/lib/material-identity';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { AccessError } from '@/lib/access';
-import { findColumn, toMaterialRules } from '@/lib/order-domain';
+import { toMaterialRules } from '@/lib/order-domain';
 import type { OrderRow } from '@/lib/order-view';
 import { taipeiDate } from '@/lib/date-range';
+import { materialReportMap } from '@/lib/material-report-map';
 
 type Template = { key: string; vendor: string; sheetName: string; columns: number; rows: number; rowStyles: number[][]; footerFormulas: { address: string; formula: string }[]; materialRows: { row: number; name: string; unit: string | null; vendor: string | null }[]; companies: { name: string; column: number }[] };
 export type VendorFile = { vendor: string; filename: string; buffer: Buffer };
@@ -15,19 +17,16 @@ const xml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;'
 const columnName = (column: number) => String.fromCharCode(64 + column);
 
 export async function buildVendorReports(rows: OrderRow[], materialRows: unknown[][]): Promise<VendorFile[]> {
+  const reportName = materialReportMap(materialRows);
   const rules = toMaterialRules(materialRows);
   for (const row of rows) {
-    const candidates = rules.filter(rule => materialIdentity({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor }) === materialIdentity(row));
+    const candidates = rules.filter(rule => materialIdentity({ materialName: reportName({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor }), unit: rule.unit, vendor: rule.vendor }) === materialIdentity({ ...row, materialName: reportName(row) }));
     if (candidates.some(rule => row.quantity < rule.minQty || row.quantity % rule.stepQty !== 0 || (rule.requiresRemarks && !row.remarks?.trim()))) throw new AccessError('材料「'+row.materialName+'」不符目前材料庫的數量或備註規則，請先確認需求單。', 409);
   }
-  const headers = (materialRows[0] ?? []).map(String);
-  const nameIndex = findColumn(headers, ['name', '名稱', '材料']);
-  const unitIndex = findColumn(headers, ['unit', '單位']);
-  const vendorIndex = findColumn(headers, ['vendor', '廠商']);
-  const priceIndex = findColumn(headers, ['price', '單價']);
+  const { name: nameIndex, unit: unitIndex, vendor: vendorIndex, price: priceIndex } = materialColumns(materialRows);
   const prices = new Map<string, number | null>();
   for (const row of materialRows.slice(1)) {
-    const key = JSON.stringify([normalized(String(row[nameIndex] ?? '')), normalized(String(row[unitIndex] ?? '')), vendorName(String(row[vendorIndex] ?? ''))]);
+    const key = JSON.stringify([normalized(reportName({ materialName: String(row[nameIndex] ?? ''), unit: String(row[unitIndex] ?? ''), vendor: String(row[vendorIndex] ?? '') })), normalized(String(row[unitIndex] ?? '')), vendorName(String(row[vendorIndex] ?? ''))]);
     const raw = priceIndex < 0 ? '' : String(row[priceIndex] ?? '').replace(/,/g, '').trim();
     const value = raw && Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Number(raw) : null;
     if (prices.has(key) && prices.get(key) !== value) throw new AccessError(`材料「${row[nameIndex]}」有不同單價，請先確認材料庫。`, 409);
@@ -56,10 +55,10 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
       if (!Number.isSafeInteger(row.quantity) || row.quantity <= 0) throw new AccessError(`${row.orderId} 的材料數量不正確。`, 409);
       const company = template.companies.find((item) => normalized(item.name) === normalized(row.reqCompany));
       if (!company) throw new AccessError(`工班「${row.reqCompany}」未對應${template.vendor}範本欄位，請先確認名稱。`, 409);
-      const matches = template.materialRows.filter((item) => normalized(item.name) === normalized(row.materialName) && normalized(item.unit || '') === normalized(row.unit));
+      const matches = template.materialRows.filter((item) => normalized(item.name) === normalized(reportName(row)) && normalized(item.unit || '') === normalized(row.unit));
       // The user selected the first same-name, same-unit template row as authoritative.
       const material = matches[0];
-      if (!material) throw new AccessError(`「${row.materialName}」（${row.unit}）不在${template.vendor}範本中，請先確認材料對應。`, 409);
+      if (!material) throw new AccessError(`「${row.materialName}」（${row.unit}）不在${template.vendor}範本中。請在 Materials 的 Report_Name 填寫範本原始料名；僅調整前端名稱請改 Display_Name。`, 409);
       const byCompany = totals.get(material.row) ?? new Map<number, number>();
       byCompany.set(company.column, (byCompany.get(company.column) ?? 0) + row.quantity); totals.set(material.row, byCompany);
     }

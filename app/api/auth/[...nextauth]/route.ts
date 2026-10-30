@@ -1,3 +1,4 @@
+import { readUsers } from '@/lib/sheet-table';
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { getGoogleSheets } from "@/lib/google-sheets";
@@ -16,10 +17,10 @@ const handler = NextAuth({
         const sheets = await getGoogleSheets();
         const sheetId = process.env.GOOGLE_SHEET_ID;
 
-        // 讀取 Users 工作表的 A 到 D 欄
+        // Read Users by named headers across the complete worksheet.
         const response = await sheets.spreadsheets.values.get({
           spreadsheetId: sheetId,
-          range: 'Users!A:D',
+          range: 'Users',
         });
 
         const rows = response.data.values;
@@ -29,8 +30,8 @@ const handler = NextAuth({
         }
 
         const userEmail = user.email;
-        // 檢查登入的信箱是否有在 A 欄 (row[0]) 之中
-        const isAllowed = rows.slice(1).some((row) => String(row[0]).toLowerCase() === userEmail?.toLowerCase() && ['Admin', 'User'].includes(String(row[1])) && (row[1] === 'Admin' || Boolean(row[2])));
+        // Validate the email, role and company using the same schema as API authorization.
+        const isAllowed = readUsers(rows).some(row => row.email.toLowerCase() === userEmail?.toLowerCase() && ['Admin', 'User'].includes(row.role) && (row.role === 'Admin' || Boolean(row.company)));
 
         if (isAllowed) {
           return true; // 允許登入

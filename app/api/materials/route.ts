@@ -9,15 +9,10 @@ export async function GET() {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
-      range: 'Materials!A:N',
+      range: 'Materials',
     });
 
-    const rows = response.data.values;
-    if (!rows || rows.length <= 1) {
-      return NextResponse.json({ data: [] });
-    }
-
-    const materials = publicMaterials(rows);
+    const materials = publicMaterials(response.data.values || []);
 
     return NextResponse.json({ data: materials }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) { return apiError(error, '讀取材料清單失敗。'); }

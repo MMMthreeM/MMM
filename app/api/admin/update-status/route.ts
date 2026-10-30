@@ -1,3 +1,4 @@
+import { orderStatusLabel } from '@/lib/order-status';
 import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
@@ -16,7 +17,7 @@ async function handleMutation(request: Request) {
     const { groups, rows } = await updateOrderStatuses(sheets, ids, body.status, account.name, note, body.expectedDate ?? '', undefined, body.targetLineIds);
     try {
       const { logAudit } = await import('@/lib/audit');
-      await logAudit(account.email, body.status === '處理中' ? '退回需求單' : '批次更新狀態', ids.join(', '), `共 ${groups.length} 張單 → ${body.status}${note ? `；原因：${note}` : ''}`);
+      await logAudit(account.email, body.status === '處理中' ? '退回需求單' : '批次更新狀態', ids.join(', '), `共 ${groups.length} 張單 → ${orderStatusLabel(body.status, body.status === '處理中')}${note ? `；原因：${note}` : ''}`);
     } catch (error) { console.error('寫入稽核紀錄失敗', error); }
     await notifyOrderProgress(groups, rows, users, body.status, account.name, note, body.expectedDate ?? '');
     return NextResponse.json({ status: 'success', orderIds: ids, adminUser: account.name });

@@ -1,3 +1,4 @@
+import { headerColumn, materialColumns } from '@/lib/sheet-table';
 import { materialIdentity } from '@/lib/material-identity';
 export const ORDER_STATUSES = ['編輯中', '處理中', '審核中', '準備出貨', '已送達'] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
@@ -39,9 +40,7 @@ export const canAdminMoveStatus = (from: string, to: OrderStatus) => {
 };
 
 export function findColumn(headers: string[], aliases: string[]) {
-  const normalized = headers.map((header) => header.trim().toLowerCase());
-  const exact = normalized.findIndex((header) => aliases.some((alias) => header === alias.toLowerCase()));
-  return exact !== -1 ? exact : normalized.findIndex((header) => aliases.some((alias) => header.includes(alias.toLowerCase())));
+  return headerColumn(headers, aliases);
 }
 
 export function columnLetter(index: number) {
@@ -56,12 +55,12 @@ export function columnLetter(index: number) {
 }
 
 export function toMaterialRules(rows: unknown[][]): MaterialRule[] {
-  const remarksColumn = (rows[0] || []).findIndex((value) => String(value).trim().toLowerCase() === 'requires_remarks');
+  const c = materialColumns(rows);
   return rows.slice(1).map((row) => ({
-    id: String(row[0] ?? ''), name: String(row[1] ?? '').trim(), vendor: String(row[3] ?? '').trim(),
-    unit: String(row[4] ?? '').trim(), minQty: Number.parseInt(String(row[5] ?? ''), 10) || 1,
-    stepQty: Number.parseInt(String(row[6] ?? ''), 10) || 1,
-    requiresRemarks: remarksColumn >= 0 && ['true', '1', 'yes'].includes(String(row[remarksColumn]).trim().toLowerCase()),
+    id: String(row[c.id] ?? ''), name: String(row[c.name] ?? '').trim(), vendor: String(row[c.vendor] ?? '').trim(),
+    unit: String(row[c.unit] ?? '').trim(), minQty: Number.parseInt(String(row[c.min] ?? ''), 10) || 1,
+    stepQty: Number.parseInt(String(row[c.step] ?? ''), 10) || 1,
+    requiresRemarks: c.remarks >= 0 && ['true', '1', 'yes'].includes(String(row[c.remarks]).trim().toLowerCase()),
   })).filter((material) => material.id && material.name);
 }
 

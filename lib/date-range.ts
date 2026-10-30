@@ -1,4 +1,5 @@
 export function taipeiDate(now = Date.now()) { return new Date(now + 8 * 3600000).toISOString().slice(0, 10); }
+export function taipeiDateTime(now = Date.now()) { return new Date(now + 8 * 3600000).toISOString().replace('T', ' ').slice(0, 16); }
 export function recentMonthRange(now = Date.now()) {
   const endDate = taipeiDate(now);
   const [year, month, day] = endDate.split('-').map(Number);
