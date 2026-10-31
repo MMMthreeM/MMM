@@ -4,6 +4,8 @@ import { canAdminMoveStatus, columnLetter, type OrderStatus } from '@/lib/order-
 import { loadOrderSheet } from '@/lib/order-sheet';
 import { groupOrders } from '@/lib/order-view';
 import type { getGoogleSheets } from '@/lib/google-sheets';
+import { toMaterialRules } from '@/lib/order-domain';
+import { validateProcurementItems } from '@/lib/procurement';
 
 export async function updateOrderStatuses(sheets: Awaited<ReturnType<typeof getGoogleSheets>>, orderIds: string[], status: OrderStatus, admin: string, note = '', expectedDate = '', requiredFrom?: string, targetLineIds?: string[], expectedLineIds?: string[]) {
   if (!orderIds.length || orderIds.length > 200 || orderIds.some((id) => typeof id !== 'string' || !id.trim())) throw new AccessError('請選取 1 至 200 張需求單。', 400);
@@ -22,9 +24,17 @@ export async function updateOrderStatuses(sheets: Awaited<ReturnType<typeof getG
     if (!group.consistent) throw new AccessError(`${group.orderId} 的狀態或工班不一致，請先確認資料。`, 409);
     if (requiredFrom && group.status !== requiredFrom) throw new AccessError(`${group.orderId} 的狀態已變更，請重新整理。`, 409);
     const allowed = status === '處理中'
-      ? ['處理中', '審核中', '準備出貨'].includes(group.status)
+      ? ['處理中', '審核中', '審核完畢', '準備出貨'].includes(group.status)
       : canAdminMoveStatus(group.status, status);
     if (!allowed) throw new AccessError(`${group.orderId} 無法由「${orderStatusLabel(group.status)}」變更為「${orderStatusLabel(status)}」。`, 409);
+  }
+  if (status === '審核完畢' || status === '準備出貨') {
+    const catalog = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials' });
+    const rules = toMaterialRules(catalog.data.values || []);
+    for (const group of groups) {
+      const issue = validateProcurementItems(group.items, rules, true);
+      if (issue) throw new AccessError(`${group.orderId}：${issue}`, 409);
+    }
   }
   let nextColumn = headers.length;
   const adminColumn = columns.adminUser < 0 ? nextColumn++ : columns.adminUser;

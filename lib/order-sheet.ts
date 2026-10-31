@@ -12,11 +12,11 @@ export async function loadOrderSheet(sheets: Awaited<ReturnType<typeof getGoogle
   const occurrences = new Map<string, number>();
   const rows: OrderRow[] = raw.slice(1).map((row) => {
     const value = (key: keyof OrderRow) => columns[key] < 0 ? '' : String(row[columns[key]] ?? '');
-    const identity = JSON.stringify([value('orderId'), value('materialName'), value('quantity'), value('unit'), value('vendor'), value('remarks')]);
+    const identity = JSON.stringify([value('orderId'), value('materialName'), value('quantity'), value('unit'), value('vendor'), value('remarks'), value('catalogId')]);
     const occurrence = occurrences.get(identity) ?? 0;
     occurrences.set(identity, occurrence + 1);
     const lineId = createHash('sha256').update(`${identity}:${occurrence}`).digest('hex').slice(0, 24);
-    return { lineId, returnNote: value('returnNote'), orderId: value('orderId'), orderDate: value('orderDate'), reqUser: userMap.get(value('reqUser')) ?? value('reqUser'),
+    return { lineId, catalogId: value('catalogId'), originalMaterialName: value('originalMaterialName'), returnNote: value('returnNote'), orderId: value('orderId'), orderDate: value('orderDate'), reqUser: userMap.get(value('reqUser')) ?? value('reqUser'),
       reqCompany: value('reqCompany'), reqRegion: value('reqRegion'), materialName: value('materialName'), quantity: Number(value('quantity')) || 0,
       unit: value('unit'), remarks: value('remarks'), vendor: value('vendor'), status: value('status'), adminNote: value('adminNote'),
       draftName: value('draftName'), adminUser: userMap.get(value('adminUser')) ?? value('adminUser'), expectedDate: value('expectedDate') };

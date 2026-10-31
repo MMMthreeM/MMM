@@ -1,6 +1,6 @@
 import { headerColumn, materialColumns } from '@/lib/sheet-table';
 import { materialIdentity } from '@/lib/material-identity';
-export const ORDER_STATUSES = ['編輯中', '處理中', '審核中', '準備出貨', '已送達'] as const;
+export const ORDER_STATUSES = ['編輯中', '處理中', '審核中', '審核完畢', '準備出貨', '已送達'] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export type MaterialRule = {
@@ -32,9 +32,10 @@ export const canUserMoveStatus = (from: string, to: string) =>
   (from === '處理中' && to === '處理中');
 
 export const canAdminMoveStatus = (from: string, to: OrderStatus) => {
-  if (to === '處理中') return from === '審核中' || from === '準備出貨';
+  if (to === '處理中') return ['審核中', '審核完畢', '準備出貨'].includes(from);
   if (to === '審核中') return from === '處理中';
-  if (to === '準備出貨') return from === '審核中';
+  if (to === '審核完畢') return from === '審核中';
+  if (to === '準備出貨') return from === '審核完畢';
   if (to === '已送達') return from === '準備出貨';
   return false;
 };

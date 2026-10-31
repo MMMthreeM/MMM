@@ -11,7 +11,7 @@
 2. 確認資料庫啟用適合正式資料的持久化，禁止自動 eviction，不能把鎖或待處理稽核鍵設到期，也不要任意清空資料庫。確認容量、備份、權限與用量告警；服務方案與費用由管理者確認。
 3. 從資料庫詳細頁複製 REST URL 與可寫入的 REST Token 到 Vercel 專案 Settings → Environment Variables：UPSTASH_REDIS_REST_URL、UPSTASH_REDIS_REST_TOKEN。Token 設為 Secret；只配置正確環境，不使用 Readonly Token，不放 NEXT_PUBLIC_，不貼進聊天或 Git。
 4. NEXTAUTH_URL 應是該環境的正式平台來源（含 https）。本機測試則對應本機網址與埠號。API 嚴格驗證 Origin；不要用萬用字元或信任任意子網域。其餘 Google／TG／CRON_SECRET 設定沿用。
-5. 確認 Audit_Logs 第一列包含 Log_ID、Timestamp、User_Email、Action、Target_Order_ID、Details，順序不限且不得重複。其他工作表不用新增欄位。Redis 僅存事件識別、時間、操作者、動作、目標單號、摘要與請求雜湊，不存整份下單內容／單價／金鑰。
+5. 確認 Audit_Logs 第一列包含 Log_ID、Timestamp、User_Email、Action、Target_Order_ID、Details，順序不限且不得重複。採購對應功能會在管理編輯時自動補齊 Orders 的 Material_ID／Original_Item_Name，其他設定不變。Redis 僅存事件識別、時間、操作者、動作、目標單號、摘要與請求雜湊，不存整份下單內容／單價／金鑰。
 6. 先部署到獨立測試環境，完成以下驗收，再安排正式維護時段切換。切換時暫停舊版寫入、等待舊請求全部結束，確保沒有舊版本、舊自動化或手動 Sheets 編輯繞過新鎖。只切網址、不停止舊寫入並不能保證安全。
 
 ## 正式驗收
@@ -21,7 +21,7 @@
 - 測試資料最低量／級距為 100 時，自填尾端空白、全形單位、外購廠商別名不得用數量 1 繞過；既有不合規需求匯出時會拒絕，須人工確認，不能直接假設可匯出。
 - 兩個 Vercel 執行個體同時更新／刪除不同工班訂單：只有鎖持有人寫入，另一請求回 423。完成後可重試；檢查沒有跨單修改。
 - 外站 Origin、缺 Origin、text/plain 被拒絕。JSON 上限 128 KiB，包含串流讀取量檢查。
-- 每帳號固定分鐘窗：驗證入口共用 120 次（含內部再次驗證）；存單及管理狀態／編輯 20 次、刪除及草稿送出 10 次、匯出／回報／稽核補寫 3 次。超限 429 並提供 Retry-After。不是無限額度保證，需配合 Vercel 邊緣防護。
+- 每帳號固定分鐘窗：驗證入口共用 120 次（含內部再次驗證）；存單及管理狀態／編輯 20 次、刪除、草稿送出及賀冠詢價 10 次、匯出／回報／稽核補寫 3 次。超限 429 並提供 Retry-After。不是無限額度保證，需配合 Vercel 邊緣防護。
 - 測試稽核工作表不可用：成功訂單不變成失敗、不自動重送，畫面提示待補寫。修復後在管理工作總覽按「補寫待處理稽核紀錄」，確認不重做業務操作。一次最多處理十個事件，量多可再次執行。
 - 模擬寫入回應不確定：保留鎖並回傳 X-Write-Status: review-required，不自動讓新請求接手。
 

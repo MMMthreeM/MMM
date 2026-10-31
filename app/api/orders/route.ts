@@ -95,7 +95,7 @@ async function handleMutation(request: Request) {
       deletes.push(...rowsToDelete);
     }
 
-    const newRows = items.map((item: { materialName: string; quantity: number; unit?: string; vendor?: string; remarks?: string }, itemIndex: number) => {
+    const newRows = items.map((item: { materialName: string; quantity: number; unit?: string; vendor?: string; remarks?: string; originalId?: string }, itemIndex: number) => {
       const rowData = new Array(headers.length).fill('');
       const setVal = (keys: string[], val: string | number) => {
         const idx = findColumn(headers, keys);
@@ -108,6 +108,8 @@ async function handleMutation(request: Request) {
       setVal(['Req_Company', '公司', '工班'], company);
       setVal(['Req_Region', '地區', '區域'], region);
       setVal(['Item_Name', '材料', '品項', '名稱'], item.materialName);
+      setVal(['Material_ID'], item.originalId && item.originalId !== 'other' ? item.originalId : '');
+      setVal(['Original_Item_Name'], item.materialName);
       setVal(['Quantity', '數量'], item.quantity);
       setVal(['Unit', '單位'], item.unit || '式');
       setVal(['Remarks', '備註', 'remark'], item.remarks || '');

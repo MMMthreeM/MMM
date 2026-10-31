@@ -6,6 +6,7 @@ export type OrderRow = {
   orderId: string; orderDate: string; reqUser: string; reqCompany: string; reqRegion: string;
   materialName: string; quantity: number; unit: string; remarks: string; vendor: string;
   status: string; adminNote: string; draftName: string; adminUser: string; expectedDate: string;
+  catalogId?: string; originalMaterialName?: string;
 };
 export type OrderGroup = { orderId: string; items: OrderRow[]; status: string; consistent: boolean; first: OrderRow };
 export type OrderFilters = { company?: string; region?: string; vendor?: string; material?: string; status?: string; startDate?: string; endDate?: string; search?: string };
@@ -21,6 +22,7 @@ export function orderPresentation(group: OrderGroup) {
   const statuses: Record<string, { label: string; tone: string }> = {
     編輯中: { label: '草稿', tone: 'draft' }, 處理中: { label: '待審核', tone: 'processing' },
     審核中: { label: '審核中', tone: 'review' }, 準備出貨: { label: '準備出貨', tone: 'shipping' },
+    審核完畢: { label: '審核完畢', tone: 'review' },
     已送達: { label: '已送達', tone: 'delivered' },
   };
   return { label: orderStatusLabel(group.status), tone: statuses[group.status]?.tone || 'draft' };

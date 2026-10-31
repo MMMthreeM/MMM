@@ -30,6 +30,7 @@ export const orderSchema = {
   quantity: ['Quantity','數量'], unit: ['Unit','單位'], remarks: ['Remarks','備註'], vendor: ['Vendor','廠商'], status: ['Status','狀態'],
   adminNote: ['Admin_Note','退回原因','管理員備註'], draftName: ['Draft_Name','草稿名稱'], adminUser: ['Admin_User','審核人'],
   expectedDate: ['Expected_Date','預計送達','交期'], returnNote: ['Order_Return_Note','整單退回原因'], lineId: ['Line_ID'],
+  catalogId: ['Material_ID'], originalMaterialName: ['Original_Item_Name'],
 };
 export const materialColumns = (rows: unknown[][]) => sheetColumns(rows[0] || [], materialSchema, ['id','name','vendor','unit','min','step'], 'Materials');
 export const orderColumns = (headers: unknown[]) => sheetColumns(headers, orderSchema, ['orderId','orderDate','reqUser','reqCompany','materialName','quantity','unit','vendor','status'], 'Orders');

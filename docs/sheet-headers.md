@@ -17,7 +17,7 @@
 | --- | --- |
 | Users | Email、Role、Company、Region、Nickname、Telegram_Chat_ID |
 | Materials | Item_ID、Item_Name、Tags、Vendor、Unit、Min_Qty、Step_Qty、Price、Category、Subcategory、Search_Aliases、Order_Hint、Requires_Remarks、Display_Name、Report_Name、Export_Aliases |
-| Orders | Order_ID、Order_Date、Req_User、Req_Company、Req_Region、Item_Name、Quantity、Unit、Remarks、Vendor、Status、Admin_Note、Draft_Name、Admin_User、Expected_Date、Order_Return_Note |
+| Orders | Order_ID、Order_Date、Req_User、Req_Company、Req_Region、Item_Name、Quantity、Unit、Remarks、Vendor、Status、Admin_Note、Draft_Name、Admin_User、Expected_Date、Order_Return_Note、Material_ID、Original_Item_Name |
 | System_Notices | Content、Is_Active |
 | Audit_Logs | Log_ID、Timestamp、User_Email、Action、Target_Order_ID、Details |
 

@@ -63,10 +63,13 @@ export default function OrderForm() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || '無法載入需求單。');
       if (!active) return;
-      const rows = (data.data as Array<CartItem & { orderId: string; orderDate: string; draftName: string; status: string }>).filter((row) => row.orderId === id);
+      const rows = (data.data as Array<CartItem & { orderId: string; orderDate: string; draftName: string; status: string; catalogId?: string }>).filter((row) => row.orderId === id);
       if (!rows.length) throw new Error('找不到可載入的需求單。');
       if (action === 'edit' && rows.some((row) => !isUserEditableStatus(row.status))) throw new Error('此單已進入審核，無法修改。可從歷史需求單選擇再訂一次。');
-      const loaded = rows.map((row) => ({ materialName: row.materialName, quantity: Number(row.quantity), unit: row.unit, vendor: row.vendor, remarks: row.remarks ?? '', originalId: matchMaterial(materials, row)?.id ?? 'other' }));
+      const loaded = rows.map((row) => {
+        const material = materials.find(item => item.id === row.catalogId) || matchMaterial(materials, row);
+        return { materialName: material?.name || row.materialName, quantity: Number(row.quantity), unit: material?.unit || row.unit, vendor: material?.vendor || row.vendor, remarks: row.remarks ?? '', originalId: material?.id ?? 'other' };
+      });
       setBaseline(JSON.stringify({ items: action === 'edit' ? loaded : [], draftName: action === 'edit' ? rows[0].draftName || '' : '' }));
       setOriginalDate(rows[0].orderDate || ''); setCart(loaded); setOriginalStatus(action === 'edit' ? rows[0].status : '');
       setEditingOrderId(action === 'edit' ? id : null); setDraftName(action === 'edit' ? rows[0].draftName || '' : '');

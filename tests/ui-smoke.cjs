@@ -12,7 +12,7 @@ const realCatalog = process.env.UI_CATALOG_PATH ? JSON.parse(fs.readFileSync(pro
   { id: 'B1', name: 'LED 35W\nPB5上蓋', displayName: '混合用料（LED／PB5）', unit: '項', vendor: '益詮', minQty: 1, stepQty: 1, tags: ['混合材料'], aliases: ['組合材料'], category: '綜合材料', subcategory: '混合用料', requiresRemarks: true, orderHint: '請確認各項材料與數量' },
 ];
 let nextLine = 0;
-const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompany = '甲工班') => ({ lineId: `line-${++nextLine}`, returnNote: '', orderId, orderDate: '2026-10-26 12:56', reqUser: '申請人', reqCompany, reqRegion: '高雄', materialName, quantity, unit: materialName === 'S' ? '式' : 'M', remarks: '需要確認現場規格與交貨時間，這是一段較長的手機版測試備註。', vendor: '材料商', status, adminNote: '', draftName: '', adminUser: '管理者', expectedDate: '' });
+const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompany = '甲工班') => ({ lineId: `line-${++nextLine}`, returnNote: '', orderId, orderDate: '2026-10-26 12:56', reqUser: '申請人', reqCompany, reqRegion: '高雄', materialName, quantity, unit: materialName === 'S' ? '式' : 'M', remarks: '需要確認現場規格與交貨時間，這是一段較長的手機版測試備註。', vendor: '伸泰', status, adminNote: '', draftName: '', adminUser: '管理者', expectedDate: '' });
 
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: process.env.UI_BROWSER_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined) });
@@ -29,7 +29,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
       if (url.pathname === '/api/me') return json({ account: { role: state.role, company: '甲工班', region: '高雄', name: '測試使用者', email: 'test@example.test' } });
       if (url.pathname === '/api/notices') return json({ data: ['系統測試公告，請確認資料。'] });
       if (url.pathname === '/api/report-issue') return json({ status: 'success' });
-      if (url.pathname === '/api/materials') return json({ data: [{ id: 'M1', name: '電線', unit: 'M', vendor: '材料商', minQty: 100, stepQty: 100, tags: [] }, ...Array.from({ length: 240 }, (_, index) => ({ id: `M-${index}`, name: `規格材料 ${index} 長名稱檢查`, unit: '式', vendor: '材料商', minQty: 1, stepQty: 1, tags: ['配件'] })), ...realCatalog.map((material) => ({ ...material, id: `REAL-${material.id}` }))] });
+      if (url.pathname === '/api/materials') return json({ data: [{ id: 'M1', name: '電線', unit: 'M', vendor: '伸泰', minQty: 100, stepQty: 100, tags: [] }, ...Array.from({ length: 240 }, (_, index) => ({ id: `M-${index}`, name: `規格材料 ${index} 長名稱檢查`, unit: '式', vendor: '伸泰', minQty: 1, stepQty: 1, tags: ['配件'] })), ...realCatalog.map((material) => ({ ...material, id: `REAL-${material.id}` }))] });
       if (url.pathname === '/api/orders' && route.request().method() === 'POST') {
         const body = route.request().postDataJSON();
         assert.deepEqual(Object.keys(body).sort(), ['draftName', 'existingOrderId', 'items', 'status']);
@@ -51,11 +51,11 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
         state.orders = state.orders.filter((row) => row.orderId !== body.orderId).concat(body.items.map((item) => ({ ...(originals.find((row) => row.lineId === item.lineId) || originals[0]), ...item })));
         return json({ status: 'success', orderId: body.orderId });
       }
+      if (url.pathname === '/api/admin/quotation') return json({text:'賀冠詢價需求\n工班：甲工班\n1. S：1 式'});
       if (url.pathname === '/api/admin/export') {
         state.exportBody = route.request().postDataJSON();
         if (state.failExport) { state.failExport = false; return json({ error: '模擬狀態衝突，請確認後再試。' }, 409); }
-        const advancedIds = [...new Set(state.orders.filter((row) => state.exportBody.orderIds.includes(row.orderId) && row.status === '審核中').map((row) => row.orderId))];
-        state.orders.forEach((row) => { if (advancedIds.includes(row.orderId)) row.status = '準備出貨'; });
+        const advancedIds = [];
         return json({ status: 'success', orderIds: state.exportBody.orderIds, advancedIds, reexportedIds: state.exportBody.orderIds.filter((id) => !advancedIds.includes(id)), archiveName: '廠商報表.zip', archiveContent: Buffer.from('mock archive').toString('base64'), files: ['伸泰', '益詮'].map((vendor) => ({ vendor, filename: `${vendor}.xlsx`, fileContent: Buffer.from('mock report').toString('base64') })) });
       }
       return json({ error: 'Unexpected mocked API request' }, 404);
@@ -85,7 +85,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('region',{name:'工班作業',exact:true}).waitFor();
     await page.getByRole('button',{name:'關閉主要選單'}).click();
     // Revisit the cached review route through each home card without a reload.
-    for (const [label, status] of [['審核中，可匯出', '審核中'], ['待審核需求', '待審核'], ['準備出貨', '準備出貨']]) {
+    for (const [label, status] of [['審核中', '審核中'], ['審核完畢', '審核完畢'], ['待審核需求', '待審核'], ['準備出貨', '準備出貨']]) {
       await page.locator('.overview-queue').getByRole('link').filter({ hasText: label }).click();
       await page.waitForFunction((status) => {
         const label = [...document.querySelectorAll('label')].find(el => el.querySelector('.form-label')?.textContent === '需求狀態');
@@ -101,6 +101,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.screenshot({ path: path.join(artifacts, 'overview-cards-mobile.png'), fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole('link', { name: '前往材料審核中心' }).click();
+    await page.getByRole('combobox', {name:'需求狀態',exact:true}).waitFor();
     const reviewStatusOptions = await page.getByRole('combobox', {name:'需求狀態',exact:true}).locator('option').allTextContents();
     for (const width of [1652,1024,640]) {
       await page.setViewportSize({width,height:1000});
@@ -134,6 +135,9 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('button', { name: '儲存單據', exact: true }).click();
     await page.locator('dialog[open] .field-error').filter({ hasText: '倍數' }).waitFor();
     await page.getByRole('spinbutton', { name: '第 1 筆數量', exact: true }).fill('200');
+    await page.getByLabel('第 1 筆供應廠商',{exact:true}).selectOption('益詮');
+    await page.getByLabel('第 3 筆供應廠商',{exact:true}).selectOption('賀冠');
+    for (const width of [390,1440]) { await page.setViewportSize({width,height:1000}); assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)); if(width===1440) { const material=await page.locator('.editor-material').first().boundingBox(), quantity=await page.locator('.editor-quantity').first().boundingBox(); assert(Math.abs(material.y-quantity.y)<3,'desktop material and quantity align'); } await page.screenshot({path:path.join(artifacts,`procurement-editor-${width}.png`),fullPage:true}); }
     await page.getByRole('button', { name: '儲存單據', exact: true }).click();
     await page.getByRole('status').filter({ hasText: '管理員修改已儲存' }).waitFor();
     assert.equal(state.orders.find((row) => row.orderId === 'ORD-20261026-9212').quantity, 200);
@@ -142,22 +146,38 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('button', { name: '確認更新', exact: true }).click();
     await page.getByRole('status').filter({ hasText: '已更新 1 張需求單' }).waitFor();
     assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '審核中'));
+    assert.equal(await page.locator('label').filter({hasText:'需求狀態'}).locator('select').inputValue(),'審核中');
+    await checkbox.check();
+    await page.getByRole('button',{name:'賀冠詢價',exact:true}).click();
+    await page.getByRole('heading',{name:'賀冠詢價內容',exact:true}).waitFor();
+    await page.getByRole('textbox',{name:'詢價文字',exact:true}).fill('賀冠詢價需求\n工班：甲工班\n1. S：1 式\n備註：請報價');
+    await page.screenshot({path:path.join(artifacts,'quotation-desktop.png'),fullPage:true});
+    await page.getByRole('button',{name:'關閉',exact:true}).click();
     await page.getByLabel('工班', { exact: true }).selectOption('甲工班');
-    await page.getByRole('button', { name: '匯出並轉準備出貨', exact: true }).click();
-    await page.getByRole('button', { name: '確認匯出並轉準備出貨', exact: true }).click();
+    await page.getByRole('button', { name: '匯出篩選範圍', exact: true }).click();
+    await page.getByRole('button', { name: '確認匯出', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: '模擬狀態衝突' }).waitFor();
     assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '審核中'));
-    await page.getByRole('button', { name: '確認匯出並轉準備出貨', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '2 張轉為準備出貨' }).waitFor();
+    await page.getByRole('button', { name: '確認匯出', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '已匯出 2 張需求單，需求狀態維持不變' }).waitFor();
     assert.deepEqual([...state.exportBody.orderIds].sort(), ['ORD-20261026-9212', 'ORD-REVIEW'].sort());
     assert.equal(state.orders.find((row) => row.orderId === 'ORD-OTHER').status, '審核中');
-    assert.equal(await page.getByRole('button', { name: '編輯需求單 ORD-20261026-9212', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '編輯需求單 ORD-20261026-9212', exact: true }).count(), 1);
     await checkbox.check();
     await page.getByRole('button', { name: '匯出勾選單據', exact: true }).click();
-    await page.getByRole('button', { name: '確認重新匯出', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '0 張轉為準備出貨，1 張重新匯出' }).waitFor();
+    await page.getByRole('button', { name: '確認匯出', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: '已匯出 1 張需求單，需求狀態維持不變' }).waitFor();
     assert.equal(state.exportBody.scope, 'selected');
-    assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '準備出貨'));
+    assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '審核中'));
+    await checkbox.check();
+    await page.getByRole('button',{name:'完成審核',exact:true}).click();
+    await page.getByRole('button',{name:'確認更新',exact:true}).click();
+    await page.waitForFunction(()=>[...document.querySelectorAll('label')].find(el=>el.querySelector('.form-label')?.textContent==='需求狀態')?.querySelector('select')?.value==='審核完畢');
+    await checkbox.check();
+    await page.getByRole('button',{name:'設為準備出貨',exact:true}).click();
+    await page.getByRole('button',{name:'確認更新',exact:true}).click();
+    await page.getByRole('status').filter({hasText:'已更新 1 張需求單為「準備出貨」'}).waitFor();
+    assert.equal(await page.locator('label').filter({hasText:'需求狀態'}).locator('select').inputValue(),'準備出貨');
     assert.equal(await page.getByRole('button', { name: '下載伸泰報表', exact: true }).count(), 1);
 
     const assertNoOverflow = async () => assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'page has horizontal overflow');
@@ -171,6 +191,8 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('button', { name: '開啟主要選單' }).click();
     await page.getByRole('link', { name: '趨勢分析儀表板', exact: true }).click();
     await page.getByRole('heading', { name: '各工班材料趨勢分析儀表板' }).waitFor();
+    if (!(await page.getByRole('combobox', {name:'需求狀態',exact:true}).isVisible())) await page.locator('.analytics-frame .filter-panel summary').click();
+    await page.getByRole('combobox', {name:'需求狀態',exact:true}).waitFor();
     assert.deepEqual(await page.getByRole('combobox', {name:'需求狀態',exact:true}).locator('option').allTextContents(),reviewStatusOptions);
     assert.deepEqual(await page.locator('.filter-grid .form-label').allTextContents().then(labels=>labels.slice(0,2)), ['地區','工班']);
     if (!(await page.getByRole('combobox', {name:'地區',exact:true}).isVisible())) await page.locator('.analytics-frame .filter-panel summary').click();
@@ -340,7 +362,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.locator('.mobile-review-actions').waitFor({ state: 'visible' });
     await page.locator('.mobile-review-more summary').click();
     await page.getByRole('button', { name: '匯出勾選單據', exact: true }).click();
-    await page.getByRole('heading', { name: '確認重新匯出', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '確認匯出報表', exact: true }).waitFor();
     await assertNoOverflow();
     await page.getByRole('button', { name: '取消', exact: true }).click();
     await page.locator('.page-title').click();
@@ -441,7 +463,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).press('Enter');
     assert.equal(await page.getByRole('textbox', { name: '第 2 筆需求數量（式）', exact: true }).inputValue(), '1');
     await page.locator('.text-note-targets').getByRole('checkbox').first().check();
-    await page.getByRole('button', { name: '將確認的 3 筆加入清單', exact: true }).click();
+    await page.getByRole('button', { name: '加入清單（已確認 0／3 筆）', exact: true }).click();
     assert.equal(await page.locator('.request-cart li').count(), 0);
     await page.waitForFunction(() => document.activeElement?.getAttribute('data-text-line') === '0');
     await page.getByRole('textbox', { name: '第 2 筆需求數量（式）', exact: true }).fill('3');
@@ -456,12 +478,14 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
       await page.setViewportSize({ width, height: 1000 }); await assertNoOverflow();
       await page.screenshot({ path: path.join(artifacts, `text-order-${width}.png`), fullPage: true });
     }
+    await page.getByRole('button', {name:'加入清單（已確認 2／2 筆）',exact:true}).waitFor();
     await page.getByRole('button', { name: '恢復第 3 筆', exact: true }).click();
+    await page.getByRole('button', {name:'加入清單（已確認 2／3 筆）',exact:true}).waitFor();
     await page.locator('[data-text-line="2"]').getByRole('button', {name:'找不到材料？自行填寫',exact:true}).click();
     await page.getByRole('textbox', {name:'第 3 筆自填材料名稱',exact:true}).fill('特殊保護套');
     await page.getByRole('textbox', {name:'第 3 筆自填單位',exact:true}).fill('個');
     await page.getByRole('checkbox', {name:'已確認第 3 筆材料、單位、數量及備註',exact:true}).check();
-    await page.getByRole('button', { name: '將確認的 3 筆加入清單', exact: true }).click();
+    await page.getByRole('button', { name: '加入清單（已確認 3／3 筆）', exact: true }).click();
     assert.equal(await page.locator('.request-cart li').count(), 3);
     assert.equal(await page.getByRole('textbox', { name: '叫料文字', exact: true }).inputValue(), '');
     await page.locator('.request-cart button').click();
@@ -476,7 +500,7 @@ const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompa
     assert.equal(imported[2].materialName,'特殊保護套');
     assert.equal(imported[2].unit,'個');
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ result: 'passed', materialCount: 241 + realCatalog.length, checks: ['footer admin-only audit utility', 'report success dismisses after 6 seconds', 'text order review and manual unit confirmation', 'text import submits through existing order form', 'role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export and shipping', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', 'material search shows 8 mobile / 24 desktop options', 'category filters and alias search', 'favorites and recent shortcuts removed', 'mixed material remarks required', 'quantity controls appear after material selection', 'mobile and 1652px desktop request layout', 'no horizontal overflow', 'date-first order identities', '16-month desktop axis', '6-month mobile window navigation', 'month-linked orders and archived order deep link'], screenshots: artifacts }, null, 2));
+    console.log(JSON.stringify({ result: 'passed', materialCount: 241 + realCatalog.length, checks: ['footer admin-only audit utility', 'report success dismisses after 6 seconds', 'text order review and manual unit confirmation', 'text import submits through existing order form', 'role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export without status changes', 'explicit review completion and shipping', 'supplier assignment', 'editable 賀冠 quotation', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', 'material search shows 8 mobile / 24 desktop options', 'category filters and alias search', 'favorites and recent shortcuts removed', 'mixed material remarks required', 'quantity controls appear after material selection', 'mobile and 1652px desktop request layout', 'no horizontal overflow', 'date-first order identities', '16-month desktop axis', '6-month mobile window navigation', 'month-linked orders and archived order deep link'], screenshots: artifacts }, null, 2));
   } catch (error) {
     if (page) { console.error((await page.locator('body').innerText()).slice(0, 1800)); await page.screenshot({ path: path.join(artifacts, 'failed-check.png'), fullPage: true }).catch(() => {}); }
     throw error;

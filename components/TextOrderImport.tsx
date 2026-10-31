@@ -46,6 +46,7 @@ export default function TextOrderImport({ materials, remaining, onAdd, onPending
     return textLineError(materialFor(line), line.amount.trim() ? Number(line.amount) : null, remarksFor(line));
   };
   const included = lines.filter(line => line.included);
+  const confirmedCount = included.filter(line => line.confirmed && !issueFor(line)).length;
   const add = () => {
     if (!included.length) return setError('請至少保留一筆材料。');
     if (included.length > remaining) return setError(`待送出清單還能加入 ${remaining} 筆，請減少本次加入的材料。`);
@@ -92,7 +93,7 @@ export default function TextOrderImport({ materials, remaining, onAdd, onPending
       })}</ol>
       <label className="block mt-4"><span className="form-label">交貨備註（指定材料後套用）</span><textarea id="text-order-notes" className="form-control" maxLength={500} value={notes} onChange={event => { setError(''); setNotes(event.target.value);  }} /></label>
       {notes.trim() && <fieldset className="text-note-targets"><legend className="form-label">交貨備註要填在哪些材料？</legend><div className="text-note-options">{lines.map((line, index) => line.included && <label className="check-target" key={index}><input type="checkbox" checked={line.applyNotes} onChange={event => { setError(''); setLines(current => current.map((entry, i) => i === index ? { ...entry, applyNotes: event.target.checked } : entry)); }} /><span>第 {index + 1} 筆 · {materialFor(line)?.displayName || line.name}</span></label>)}</div></fieldset>}
-      <button type="button" className="btn btn-primary mt-4" onClick={add}>將確認的 {included.length} 筆加入清單</button>
+      <button type="button" className="btn btn-primary mt-4" onClick={add}>加入清單（已確認 {confirmedCount}／{included.length} 筆）</button>
     </div>}
     {error && <p role="alert" className="feedback-error mt-3">{error}</p>}
   </div></details>;

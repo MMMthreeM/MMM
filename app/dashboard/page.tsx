@@ -40,7 +40,7 @@ function HistoryPage() {
     { id: 'archive' as const, label: '準備出貨／已送達', matches: (status: string) => ['準備出貨', '已送達'].includes(status) },
   ];
   const tabGroups = groups.filter((group) => tabs.find((entry) => entry.id === tab)!.matches(group.status));
-  const priority = (group: (typeof groups)[number]) => !group.consistent ? -1 : isReturnedOrder(group) ? 0 : group.status === '處理中' ? 1 : 2;
+  const priority = (group: (typeof groups)[number]) => !group.consistent ? -1 : isReturnedOrder(group) ? 0 : group.status === '處理中' ? 1 : group.status === '審核中' ? 2 : 3;
   const materialMatches = (name: string) => (filters.material || '').trim().toLowerCase().split(/\s+/).every((token) => name.toLowerCase().includes(token));
   const filtered = invalidRange ? [] : filterOrderGroups(tabGroups.filter((group) => !filters.material || group.items.some((item) => materialMatches(item.materialName))), { ...filters, material: '' }).sort((a, b) => (sort === 'priority' && tab === 'active' ? priority(a) - priority(b) : 0) || (sort === 'asc' ? a.first.orderDate.localeCompare(b.first.orderDate) : b.first.orderDate.localeCompare(a.first.orderDate)) || a.orderId.localeCompare(b.orderId));
   const pagination = usePagination(filtered, JSON.stringify([tab, filters, sort]));
@@ -62,14 +62,14 @@ function HistoryPage() {
     finally { setBusy(false); }
   };
   return <main className="page-frame">
-    <div className="page-heading"><div><h1 className="page-title">歷史需求單</h1><p className="page-subtitle">{account?.company ? `${account.company}工班共用的需求單與草稿。` : '查看所屬工班的需求單與草稿。'}審核中的單據已鎖定，無法修改。</p></div><Link className="btn btn-primary" href="/request">建立材料需求</Link></div>
+    <div className="page-heading"><div><h1 className="page-title">歷史需求單</h1><p className="page-subtitle">{account?.company ? `${account.company}工班共用的需求單與草稿。` : '查看所屬工班的需求單與草稿。'}審核中及後續階段的單據已鎖定，無法修改。</p></div><Link className="btn btn-primary" href="/request">建立材料需求</Link></div>
     <div className="history-tabs" role="tablist" aria-label="需求單類別">{tabs.map((entry, index) => <button key={entry.id} role="tab" id={`${entry.id}-tab`} tabIndex={tab === entry.id ? 0 : -1} aria-controls="history-panel" aria-selected={tab === entry.id} onClick={() => { setTab(entry.id); setFilters({}); }} onKeyDown={(event) => {
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : -1;
       if (next < 0) return;
       event.preventDefault(); setTab(tabs[next].id); setFilters({}); document.getElementById(`${tabs[next].id}-tab`)?.focus();
     }}>{entry.label}（{groups.filter((group) => entry.matches(group.status)).length}）</button>)}</div>
-    {tab === 'active' && <div className="history-status-filters" role="group" aria-label="進行中狀態">{['', '退回待修改', '待審核', '審核中'].map((status) => <button key={status} className="btn btn-secondary" aria-pressed={(filters.status || '') === status} onClick={() => update('status', status)}>{status || '全部進行中'} <span>{status ? tabGroups.filter((group) => orderPresentation(group).label === status).length : tabGroups.length}</span></button>)}</div>}
-    <p className="mb-5 text-sm text-[var(--muted)]">{tab === 'active' ? `${sort === 'priority' ? '優先列出退回待修改的需求，其次為待審核、審核中。' : '依送出／更新時間排序。'}準備出貨與已送達請至「準備出貨／已送達」查看。` : tab === 'draft' ? '尚未送出的工班草稿，可繼續修改或正式送出。' : '查看準備出貨與已送達的單據，也可以再訂一次。'}</p>
+    {tab === 'active' && <div className="history-status-filters" role="group" aria-label="進行中狀態">{['', '退回待修改', '待審核', '審核中', '審核完畢'].map((status) => <button key={status} className="btn btn-secondary" aria-pressed={(filters.status || '') === status} onClick={() => update('status', status)}>{status || '全部進行中'} <span>{status ? tabGroups.filter((group) => orderPresentation(group).label === status).length : tabGroups.length}</span></button>)}</div>}
+    <p className="mb-5 text-sm text-[var(--muted)]">{tab === 'active' ? `${sort === 'priority' ? '優先列出退回待修改的需求，其次為待審核、審核中及審核完畢。' : '依送出／更新時間排序。'}準備出貨與已送達請至「準備出貨／已送達」查看。` : tab === 'draft' ? '尚未送出的工班草稿，可繼續修改或正式送出。' : '查看準備出貨與已送達的單據，也可以再訂一次。'}</p>
     {feedback && <p role="status" className="feedback-success mb-5">{feedback}</p>}
     {error && <p role="alert" className="feedback-error mb-5">{error}<button className="ml-3 underline" onClick={() => void refresh()}>重新載入</button></p>}
     <FilterPanel count={Object.values(filters).filter(Boolean).length}><div className="filter-grid">

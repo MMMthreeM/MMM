@@ -1,5 +1,5 @@
 import { materialColumns } from '@/lib/sheet-table';
-import { canonicalMaterialText, canonicalVendor, materialIdentity } from '@/lib/material-identity';
+import { canonicalMaterialText, canonicalVendor } from '@/lib/material-identity';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
@@ -7,9 +7,11 @@ import { AccessError } from '@/lib/access';
 import { toMaterialRules } from '@/lib/order-domain';
 import type { OrderRow } from '@/lib/order-view';
 import { taipeiDate } from '@/lib/date-range';
+import { procurementRule, validateProcurementItems } from '@/lib/procurement';
+import { insertReportRows } from '@/lib/report-rows';
 import { materialReportMap } from '@/lib/material-report-map';
 
-type Template = { key: string; vendor: string; sheetName: string; columns: number; rows: number; rowStyles: number[][]; footerFormulas: { address: string; formula: string }[]; materialRows: { row: number; name: string; unit: string | null; vendor: string | null }[]; companies: { name: string; column: number }[] };
+type Template = { key: string; vendor: string; sheetName: string; columns: number; rows: number; rowStyles: number[][]; footerFormulas: { address: string; formula: string }[]; materialRows: { row: number; name: string; unit: string | null; vendor: string | null; itemNumber?: string }[]; companies: { name: string; column: number }[] };
 export type VendorFile = { vendor: string; filename: string; buffer: Buffer };
 const normalized = canonicalMaterialText;
 const vendorName = canonicalVendor;
@@ -19,9 +21,16 @@ const columnName = (column: number) => String.fromCharCode(64 + column);
 export async function buildVendorReports(rows: OrderRow[], materialRows: unknown[][]): Promise<VendorFile[]> {
   const reportName = materialReportMap(materialRows);
   const rules = toMaterialRules(materialRows);
+  const exportName = (row: OrderRow) => {
+    const assigned = reportName(row);
+    const base = procurementRule(rules, row);
+    return assigned !== row.materialName || !base ? assigned : reportName({ materialName: base.name, unit: base.unit, vendor: base.vendor });
+  };
   for (const row of rows) {
-    const candidates = rules.filter(rule => materialIdentity({ materialName: reportName({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor }), unit: rule.unit, vendor: rule.vendor }) === materialIdentity({ ...row, materialName: reportName(row) }));
-    if (candidates.some(rule => row.quantity < rule.minQty || row.quantity % rule.stepQty !== 0 || (rule.requiresRemarks && !row.remarks?.trim()))) throw new AccessError('材料「'+row.materialName+'」不符目前材料庫的數量或備註規則，請先確認需求單。', 409);
+    const issue = validateProcurementItems([row], rules, true);
+    if (issue) throw new AccessError(`${row.orderId} 的材料「${row.materialName}」：${issue}`, 409);
+    const aliases = rules.filter(rule => vendorName(rule.vendor) === vendorName(row.vendor) && normalized(rule.unit) === normalized(row.unit) && normalized(reportName({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor })) === normalized(reportName(row)));
+    if (aliases.some(rule => row.quantity < rule.minQty || row.quantity % rule.stepQty !== 0 || (rule.requiresRemarks && !row.remarks?.trim()))) throw new AccessError(`材料「${row.materialName}」不符目前材料庫的數量或備註規則，請先確認需求單。`, 409);
   }
   const { name: nameIndex, unit: unitIndex, vendor: vendorIndex, price: priceIndex } = materialColumns(materialRows);
   const prices = new Map<string, number | null>();
@@ -32,13 +41,34 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
     if (prices.has(key) && prices.get(key) !== value) throw new AccessError(`材料「${row[nameIndex]}」有不同單價，請先確認材料庫。`, 409);
     prices.set(key, value);
   }
-  if (rows.some((row) => !['伸泰', '益詮'].includes(vendorName(row.vendor)))) throw new AccessError('部分材料尚未對應伸泰或益詮，請先編輯需求單指定正確材料，避免漏列。', 409);
+  if (!rows.some(row => ['伸泰', '益詮'].includes(vendorName(row.vendor)))) return [];
   const result: VendorFile[] = [];
   for (const key of ['shentai', 'yiquan']) {
     const base = path.join(process.cwd(), 'assets', 'report-templates', key);
     const template = JSON.parse(await fs.readFile(base + '.json', 'utf8')) as Template;
     const zip = await JSZip.loadAsync(await fs.readFile(base + '.xlsx'));
-    const source = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+    let source = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+    let workbook = await zip.file('xl/workbook.xml')!.async('string');
+    const vendorRows = rows.filter(item => vendorName(item.vendor) === template.vendor);
+    const additions = new Map<string, { name: string; unit: string }>();
+    for (const row of vendorRows) {
+      const name = exportName(row);
+      if (!template.materialRows.some(item => normalized(item.name) === normalized(name) && normalized(item.unit || '') === normalized(row.unit))) additions.set(JSON.stringify([normalized(name), normalized(row.unit)]), { name, unit: row.unit });
+    }
+    const originalLast = Math.max(...template.materialRows.map(item => item.row));
+    const lastItemNumber = Math.max(0, ...template.materialRows.map(item => Number(item.itemNumber) || 0));
+    const insertAt = originalLast + 1, count = additions.size;
+    const rowStyles = template.rowStyles[originalLast - 1];
+    const rowAttributes = new RegExp(`<row\\b[^>]*\\br="${originalLast}"([^>]*)>`).exec(source)?.[1] || '';
+    const newRows = [...additions.values()].map((item, index) => ({ row: insertAt + index, name: item.name, unit: item.unit, vendor: template.vendor }));
+    if (count) {
+      const shifted = insertReportRows(source, workbook, insertAt, count, newRows.map(item => `<row r="${item.row}"${rowAttributes}>${rowStyles.map((style, column) => `<c r="${columnName(column + 1)}${item.row}" s="${style}"/>`).join('')}</row>`));
+      source = shifted.sheet; workbook = shifted.workbook;
+      template.rowStyles.splice(insertAt - 1, 0, ...newRows.map(() => [...rowStyles]));
+      template.rows += count;
+      template.footerFormulas = template.footerFormulas.map(footer => ({ address: footer.address.replace(/(\d+)$/, number => String(Number(number) >= insertAt ? Number(number) + count : number)), formula: footer.formula.replace(/([A-Z]+)(\d+)/g, (_, column, number) => column + (Number(number) >= insertAt ? Number(number) + count : Number(number) === originalLast ? Number(number) + count : number)) }));
+      template.materialRows.push(...newRows);
+    }
     const changes = new Map<string, string>();
     const cell = (row: number, column: number, value: number | string | null, formula?: string) => {
       const address = `${columnName(column)}${row}`;
@@ -50,12 +80,13 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
     for (let row = 4; row <= template.rows; row++) for (let column = 6; column <= template.columns; column++) cell(row, column, null);
     if (template.columns >= 21) cell(1, 21, null);
     cell(2, 10, taipeiDate().replace(/-/g, '/'));
+    newRows.forEach((item, index) => { cell(item.row, 1, String(lastItemNumber + index + 1)); cell(item.row, 2, item.name); cell(item.row, 3, item.unit); cell(item.row, 4, template.vendor); });
     const totals = new Map<number, Map<number, number>>();
-    for (const row of rows.filter((item) => vendorName(item.vendor) === template.vendor)) {
+    for (const row of vendorRows) {
       if (!Number.isSafeInteger(row.quantity) || row.quantity <= 0) throw new AccessError(`${row.orderId} 的材料數量不正確。`, 409);
       const company = template.companies.find((item) => normalized(item.name) === normalized(row.reqCompany));
       if (!company) throw new AccessError(`工班「${row.reqCompany}」未對應${template.vendor}範本欄位，請先確認名稱。`, 409);
-      const matches = template.materialRows.filter((item) => normalized(item.name) === normalized(reportName(row)) && normalized(item.unit || '') === normalized(row.unit));
+      const matches = template.materialRows.filter((item) => normalized(item.name) === normalized(exportName(row)) && normalized(item.unit || '') === normalized(row.unit));
       // The user selected the first same-name, same-unit template row as authoritative.
       const material = matches[0];
       if (!material) throw new AccessError(`「${row.materialName}」（${row.unit}）不在${template.vendor}範本中。請在 Materials 的 Report_Name 填寫範本原始料名；僅調整前端名稱請改 Display_Name。`, 409);
@@ -81,9 +112,9 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
       const [, range] = /^SUBTOTAL\(9,(I\d+:I\d+)\)$/.exec(footer.formula) ?? [];
       if (range) cell(Number(footer.address.slice(1)), 9, hasPricedDemand ? grandTotal : '', `IF(COUNT(${range})=0,"",${footer.formula})`);
     }
-    const sheet = source.replace(/<c\b[^>]*\br="([A-Z]+\d+)"[^>]*(?:\/>|>[\s\S]*?<\/c>)/g, (original, address: string) => changes.get(address) ?? original);
+    const sheet = source.replace(/<c\b[^>]*\br="([A-Z]+\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g, (original, address: string) => changes.get(address) ?? original);
     zip.file('xl/worksheets/sheet1.xml', sheet);
-    zip.file('xl/workbook.xml', (await zip.file('xl/workbook.xml')!.async('string')).replace('</workbook>', '<calcPr calcId="191029" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>'));
+    zip.file('xl/workbook.xml', workbook.replace('</workbook>', '<calcPr calcId="191029" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>'));
     result.push({ vendor: template.vendor, filename: `高雄-材料需求-${template.vendor}_${taipeiDate().replace(/-/g, '')}.xlsx`, buffer: await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }) });
   }
   return result;

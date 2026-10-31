@@ -2,7 +2,8 @@ import { secureMutation } from '@/lib/mutation-security';
 import { NextResponse } from 'next/server';
 import { AccessError, apiError, requireAccount } from '@/lib/access';
 import { loadOrderSheet } from '@/lib/order-sheet';
-import { toMaterialRules, validateItems, type OrderItemInput } from '@/lib/order-domain';
+import { toMaterialRules, type OrderItemInput } from '@/lib/order-domain';
+import { procurementRule, validateProcurementItems } from '@/lib/procurement';
 import { groupOrders, orderPresentation } from '@/lib/order-view';
 
 type EditItem = OrderItemInput & { lineId?: string };
@@ -18,7 +19,8 @@ async function handleMutation(request: Request) {
     if (!group.consistent || !['處理中', '審核中'].includes(group.status)) throw new AccessError('管理員只能修改待審核、退回待修改或審核中的完整需求單。', 409);
     if (group.status !== body.expectedStatus || JSON.stringify(group.items.map((item) => item.lineId).sort()) !== JSON.stringify([...body.expectedLineIds].sort())) throw new AccessError('需求單已被更新，請重新整理後再編輯。', 409);
     const materials = await sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_SHEET_ID, range: 'Materials' });
-    const validation = validateItems(body.items, toMaterialRules(materials.data.values ?? []));
+    const rules = toMaterialRules(materials.data.values ?? []);
+    const validation = validateProcurementItems(body.items, rules);
     if (validation) throw new AccessError(validation, 400);
     const items = body.items as EditItem[];
     const ids = new Map(group.items.map((item) => [item.lineId, item]));
@@ -28,12 +30,17 @@ async function handleMutation(request: Request) {
     const matching = sheet.rows.map((row, index) => ({ row, index })).filter(({ row }) => row.orderId === body.orderId);
     const indexById = new Map(matching.map(({ row, index }) => [row.lineId, index]));
     if (['materialName', 'quantity', 'unit', 'vendor', 'remarks'].some((key) => sheet.columns[key as keyof typeof sheet.columns] < 0)) throw new AccessError('材料欄位設定不完整。', 409);
+    const headers = [...sheet.headers];
+    const catalogColumn = sheet.columns.catalogId < 0 ? headers.push('Material_ID') - 1 : sheet.columns.catalogId;
+    const originalColumn = sheet.columns.originalMaterialName < 0 ? headers.push('Original_Item_Name') - 1 : sheet.columns.originalMaterialName;
     const newRows = items.map((item) => {
       const original = item.lineId ? indexById.get(item.lineId) : undefined;
       const source = sheet.raw[(original ?? matching[0].index) + 1];
-      const row = Array.from({ length: sheet.headers.length }, (_, index) => source[index] ?? '');
+      const row = Array.from({ length: headers.length }, (_, index) => source[index] ?? '');
       row[sheet.columns.materialName] = item.materialName.trim(); row[sheet.columns.quantity] = item.quantity;
       row[sheet.columns.unit] = item.unit || '式'; row[sheet.columns.vendor] = item.vendor || '未指定'; row[sheet.columns.remarks] = item.remarks || '';
+      row[catalogColumn] = procurementRule(rules, item)?.id || '';
+      row[originalColumn] = original === undefined ? item.materialName : source[originalColumn] || source[sheet.columns.materialName] || item.materialName;
       if (sheet.columns.adminUser >= 0) row[sheet.columns.adminUser] = account.name;
       if (original === undefined && sheet.columns.adminNote >= 0) row[sheet.columns.adminNote] = '';
       return row;
@@ -50,6 +57,7 @@ async function handleMutation(request: Request) {
           { insertDimension: { range: { sheetId, dimension: 'ROWS', startIndex: firstRow, endIndex: firstRow + newRows.length }, inheritFromBefore: true } },
           { updateCells: { start: { sheetId, rowIndex: firstRow, columnIndex: 0 }, rows: newRows.map(cells), fields: 'userEnteredValue' } },
         ];
+    if (headers.length !== sheet.headers.length) requests.unshift({ updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows: [cells(headers)], fields: 'userEnteredValue' } });
     // A single Sheets batch validates all changes before applying the edit.
     await sheets.spreadsheets.batchUpdate({ spreadsheetId: process.env.GOOGLE_SHEET_ID, requestBody: { requests } });
     try { const { logAudit } = await import('@/lib/audit'); await logAudit(account.email, '管理員編輯需求單', body.orderId, `材料筆數 ${matching.length} → ${newRows.length}；維持${orderPresentation(group).label}`); }
