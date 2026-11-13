@@ -16,6 +16,14 @@ const id=n=>`lin_00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const content=(quantity=10)=>({Material_ID:ui.textCell('M1'),Item_Name:ui.textCell('電線'),Original_Item_Name:ui.textCell(''),Quantity:{kind:'number',value:quantity},Unit:ui.textCell('M'),Vendor:ui.textCell('伸泰'),Remarks:ui.textCell('A 棟施工')});
 const row=(n=1,status='處理中')=>({orderId:'O1',lineId:id(n),lineRef:{kind:'permanent',orderId:'O1',lineId:id(n)},content:content(),mcf:'mcf:v1:'+'a'.repeat(64),readState:'verified',effectiveReview:'confirmed',orderDate:'2026-11-02 09:30',reqCompany:'合成工班',reqUser:'Synthetic',status,activeReturnRef:'none',materialName:'電線',quantity:10,unit:'M',remarks:'A 棟施工',vendor:'伸泰',draftName:''});
 const material={id:'M1',name:'電線',unit:'M',vendor:'伸泰',minQty:10,stepQty:5,requiresRemarks:false};
+
+test('crew custom entry has no vendor requirement; procurement validation keeps it',()=>{
+  const line=ui.editableRows([{...row(),content:{...content(3),Material_ID:ui.textCell(''),Vendor:ui.textCell('')}}],false,()=> 'custom').lines[0];
+  assert.equal(validation.editorLineIssues(line,undefined,true,false,false).length,0);
+  assert(validation.editorLineIssues(line,undefined,true,false,true).some(i=>i.message.includes('廠商')));
+  const option=load('lib/material-catalog').materialOption({...material,tags:[],aliases:[],category:'電線',subcategory:'',displayName:'電線'});
+  assert(!option.detail.includes('伸泰'));
+});
 test('T09 shipping belongs to active and only delivered belongs to archive',()=>{for(const [status,tab]of[['編輯中','draft'],['處理中','active'],['準備出貨','active'],['審核完畢','active'],['已送達','archive']])assert.equal(nav.crewTab(view.groupOrders([row(1,status)])[0]),tab);});
 for(const query of ['電線','O1','2026/11/02','20261102','電線 O1'])test('T09 intelligent search preserves complete order: '+query,()=>{const rows=[row(),{...row(2),materialName:'開關'}],g=view.groupOrders(rows)[0];assert(nav.orderMatches(g,query));assert.equal(g.items.length,2);assert.equal(g.items[1].materialName,'開關');});
 test('T09 return priority is derived, remaining orders sort by actual date',()=>{const normal=view.groupOrders([row()])[0],returned=view.groupOrders([{...row(),orderId:'O2',activeReturnRef:'event:synthetic'}])[0];assert(nav.crewOrderSort(returned,normal,'priority')<0);assert.equal(nav.crewOrderSort(normal,normal,'desc'),0);});

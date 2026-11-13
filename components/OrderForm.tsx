@@ -71,7 +71,7 @@ export function V2OrderEditor({materials,group,initialMode,admin=false,onSaved}:
   const freezeAttempt=(info:{attemptRef?:string;message:string})=>{try{preserveAttempt(info.attemptRef);}catch{/* Original pre-dispatch display snapshot remains; never replay on storage failure. */}setUncertain(info);};
   const change=(next:EditorState)=>{setUndo(u=>[...u,state]);setState(next);setReview(false);setNotice('');setError('');};
   const rules=useMemo(()=>new Map(materials.map(m=>[m.id,m])),[materials]);
-  const issues=useMemo(()=>state.lines.map(line=>editorLineIssues(line,rules.get(contentText(line.content,'Material_ID')),true,admin)),[state.lines,rules,admin]);
+  const issues=useMemo(()=>state.lines.map(line=>editorLineIssues(line,rules.get(contentText(line.content,'Material_ID')),true,admin,admin)),[state.lines,rules,admin]);
   const problemCount=issues.filter((value,index)=>value.length>0||pendingQty.has(state.lines[index].uiKey)).length;
   const focusLine=(key:string)=>{setReview(false);setSearch('');setProblemsOnly(false);if(!admin){setEditingKey(key);setEntryMode('search');}requestAnimationFrame(()=>{const row=admin?document.getElementById('edit-line-'+key):document.querySelector<HTMLElement>('.crew-entry-panel');row?.scrollIntoView({block:'start',behavior:'instant'});(row?.querySelector<HTMLElement>('[data-field="quantity"]')??row)?.focus({preventScroll:true});});};
   const editLine=useCallback((key:string,content:SevenContent)=>{const before=currentState.current;setUndo(u=>[...u,before]);setState(updateEditorLine(before,key,content,originals));setReview(false);setNotice('');setError('');},[originals,setUndo,setState,setReview,setNotice,setError]);
@@ -113,7 +113,7 @@ export function V2OrderEditor({materials,group,initialMode,admin=false,onSaved}:
     if(disabled||submitting.current)return;if(!state.lines.length)return setError('請至少保留一筆材料。');if((textPending||composePending)&&formal)return setError('請先完成尚未加入的材料或文字叫料。');if((textPending||composePending)&&!allowPendingText){setTextSaveWarning(true);return;}
     if(!originals.length&&account?.role==='Admin'&&!account.crews?.some(crew=>crew.company===targetCompany))return setError('請先選擇代下單工班。');
     if(!formal&&!draftName.trim()){setDraftOpen(true);return setError('請填草稿名稱。');}
-    const invalid=state.lines.findIndex(l=>pendingQty.has(l.uiKey)||editorLineIssues(l,rules.get(contentText(l.content,'Material_ID')),formal,admin).length>0);if(invalid>=0){setShowIssues(true);focusLine(state.lines[invalid].uiKey);return setError(`第 ${invalid+1} 筆材料尚未完成，請依待處理項目修正。`);}
+    const invalid=state.lines.findIndex(l=>pendingQty.has(l.uiKey)||editorLineIssues(l,rules.get(contentText(l.content,'Material_ID')),formal,admin,admin).length>0);if(invalid>=0){setShowIssues(true);focusLine(state.lines[invalid].uiKey);return setError(`第 ${invalid+1} 筆材料尚未完成，請依待處理項目修正。`);}
     if(state.lines.some(l=>l.content.Quantity.kind!=='number'||!Number.isFinite(l.content.Quantity.value)||l.content.Quantity.value<=0||(!formal&&!Number.isSafeInteger(l.content.Quantity.value))))return setError(formal?'數量須為有效正數。':'草稿數量須為有效正整數。');
     if(formal&&admin&&state.lines.some(l=>!l.confirmed))return setError('請逐筆核對材料。');
     if(formal&&!review)return setError('請先檢視最後確認。');

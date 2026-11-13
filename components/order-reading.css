@@ -119,6 +119,36 @@
 .pending-order-actions { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: .5rem; }
 .pending-order-wait { font-size: .875rem; color: var(--muted); white-space: nowrap; }
 .pending-order-actions .card-open { margin-top: 0; }
+/* History separates whole orders; the selected detail keeps its own reading rhythm. */
+.crew-orders .order-card-list { display: grid; gap: 1.25rem; border: 0; border-radius: 0; background: transparent; overflow: visible; }
+.history-order-card { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.history-order-card:has(.is-selected) { border-color: #9dc7e3; }
+.history-order-card .order-list-table thead { display: none; }
+.history-order-card .order-list-table tbody tr:last-child > * { border-bottom: 0; }
+.history-order-card .order-date { font-size: 1.0625rem; font-weight: 650; }
+.history-order-card .order-reference { font-size: .8125rem; font-weight: 400; margin-top: .4rem; }
+.history-order-card .analytics-order-materials > li { padding-block: .5rem; }
+.history-order-card .analytics-order-materials > li:first-child { padding-top: 0; }
+.history-order-card .analytics-order-materials > li > span { font-size: .9375rem; line-height: 1.7; font-weight: 600; }
+.history-order-card .order-list-remarks { font-size: .8125rem; line-height: 1.65; }
+.history-order-detail .detail-heading { padding-block: 1.25rem; }
+.history-order-detail .detail-heading :is(h1,h2) { font-size: 1.375rem; font-weight: 700; }
+.history-order-detail .detail-content { padding-block: 1.5rem; }
+.history-order-detail .request-section { margin-top: 2.5rem; }
+.history-order-detail .section-title { font-size: 1.125rem; font-weight: 700; }
+.history-order-detail .request-facts { gap: 1.5rem; padding-block: 1.25rem; }
+.history-order-detail .request-facts dt { font-size: .8125rem; margin-bottom: .5rem; }
+.history-order-detail .request-facts dd { font-size: 1rem; font-weight: 500; }
+.history-order-detail .request-facts-reference dd { font-size: .8125rem; font-weight: 400; }
+.history-order-detail .request-materials > li { padding-block: 1.5rem; }
+.history-order-detail .request-materials > li + li { border-top: 1px solid var(--line); }
+.history-order-detail .request-material-name { font-size: 1.0625rem; font-weight: 650; }
+.history-order-detail .material-position { color: var(--muted); font-size: .8125rem; font-weight: 400; }
+.history-order-detail .material-remarks { font-size: .875rem; color: var(--muted); }
+.history-order-detail .request-material-main { grid-template-columns: minmax(0,1fr); gap: .75rem; }
+.history-order-detail .request-material-quantity { padding-left: 0; }
+.history-order-detail .order-history-panel ol > li { padding-block: 1rem; }
+.history-order-detail .order-history-panel ol > li + li { border-top: 1px solid var(--line); }
 @container (max-width: 800px) {
   .order-list-table { min-width: 0; }
   .order-list-table thead { display: none; }

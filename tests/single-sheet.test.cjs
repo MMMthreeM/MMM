@@ -23,6 +23,21 @@ function createBody(intent='create-formal',quantity=100){const content={Material
 test('new formal request requires bound human confirmation, then round-trips single-Sheets schema',async()=>{const db={rows:[],events:[]},body=createBody();await assert.rejects(mutations.planSingleSheetMutation(db,actor,body,catalog,secret),/CONFIRMATION_REQUIRED/);const signed=await mutations.planSingleSheetMutation(db,actor,body,catalog,secret,{confirmOnly:true});const done=await mutations.planSingleSheetMutation(db,actor,{...body,confirmations:signed.confirmations},catalog,secret);assert.equal(done.db.rows[0].status,'處理中');assert.equal(store.decodeSheetDatabase(store.encodeSheetDatabase(done.db)).rows[0].effectiveReview,'confirmed');const changed=createBody('create-formal',200);await assert.rejects(mutations.planSingleSheetMutation(db,actor,{...changed,confirmations:signed.confirmations},catalog,secret),/MISMATCH/);});
 test('draft can save sub-minimum integer without human confirmation; cannot be submitted unchanged',async()=>{const p=await mutations.planSingleSheetMutation({rows:[],events:[]},actor,createBody('create-draft',7),catalog,secret);assert.equal(p.db.rows[0].status,'編輯中');assert.equal(p.db.rows[0].quantity,7);await assert.rejects(mutations.planSingleSheetMutation(p.db,actor,{contractVersion:2,intent:'submit-draft',orderId:p.orderId},catalog,secret,{confirmOnly:true}),/CONTENT_INVALID/);});
 
+test('crew custom materials submit without a vendor; admin must assign one before review and shipping',async()=>{
+  const db={rows:[],events:[]},crew={...actor,role:'User',company:'Crew'},body=createBody('create-formal',3);
+  Object.assign(body.changeSet.added[0].content,{Material_ID:{kind:'string',value:''},Item_Name:{kind:'string',value:'Custom fitting'},Unit:{kind:'string',value:'個'},Vendor:{kind:'string',value:''}});
+  const signed=await mutations.planSingleSheetMutation(db,crew,body,catalog,secret,{confirmOnly:true});
+  const submitted=await mutations.planSingleSheetMutation(db,crew,{...body,confirmations:signed.confirmations},catalog,secret);
+  const row=submitted.db.rows[0];assert.equal(row.vendor,'');assert.equal(row.status,'處理中');
+  for(const intent of ['complete-review','prepare-shipping'])await assert.rejects(mutations.planSingleSheetMutation(submitted.db,actor,{contractVersion:2,intent,orderId:row.orderId},catalog,secret));
+  const amendment={contractVersion:2,intent:'amend-order',orderId:row.orderId,changeSet:{contractVersion:2,changeSetVersion:1,target:{kind:'existing-order',orderId:row.orderId},expectations:{scope:'whole-order',expectedStatus:row.status,lines:[{lineRef:row.lineRef,expectedMcf:row.mcf}]},changed:[{lineRef:row.lineRef,after:{...row.content,Vendor:{kind:'string',value:'益詮'}}}],added:[],removed:[],merged:[]}};
+  const assignment=await mutations.planSingleSheetMutation(submitted.db,actor,amendment,catalog,secret,{confirmOnly:true});
+  const assigned=await mutations.planSingleSheetMutation(submitted.db,actor,{...amendment,confirmations:assignment.confirmations},catalog,secret);
+  const reviewed=await mutations.planSingleSheetMutation(assigned.db,actor,{contractVersion:2,intent:'complete-review',orderId:row.orderId},catalog,secret);
+  const shipping=await mutations.planSingleSheetMutation(reviewed.db,actor,{contractVersion:2,intent:'prepare-shipping',orderId:row.orderId},catalog,secret);
+  assert.equal(shipping.db.rows[0].vendor,'益詮');assert.equal(shipping.db.rows[0].status,'準備出貨');
+});
+
 test('new and deleted order numbers use the short date format without reusing a number',async()=>{
   const options={now:()=> '2026-11-13 08:10:00',orderSuffix:9668};
   const first=await mutations.planSingleSheetMutation({rows:[],events:[]},actor,createBody('create-draft'),catalog,secret,options);

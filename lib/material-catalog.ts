@@ -39,5 +39,5 @@ export function rankSearchOptions<T extends SearchableOption>(options: T[], quer
 }
 
 export function materialOption(material: CatalogMaterial): SearchableOption {
-  return { value: material.id, label: material.displayName || material.name, detail: `${material.vendor || '未指定廠商'} · ${material.unit} · ${material.subcategory || material.category || '材料'}`, keywords: [material.name, ...(material.tags || []), ...(material.aliases || []), material.category, material.subcategory].filter(Boolean).join(' ') };
+  return { value: material.id, label: material.displayName || material.name, detail: `${material.unit} · ${material.subcategory || material.category || '材料'}`, keywords: [material.name, ...(material.tags || []), ...(material.aliases || []), material.category, material.subcategory].filter(Boolean).join(' ') };
 }

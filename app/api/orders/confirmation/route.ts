@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       const catalog = await readV2Catalog(sheets, spreadsheetId);
       const policies = b.sources.map((content: SevenContent) => {
         const origin = content?.Material_ID?.kind === 'string' && content.Material_ID.value ? { kind: 'catalog-selection' as const, materialIdAtSelection: content.Material_ID.value, selectionEvidenceRef: 'preview-only' } : { kind: 'manual-entry' as const, inputEvidenceRef: 'preview-only' };
-        const basis = materialBasis(content, catalog.materials, catalog.digest, origin, b.validation);
+        const basis = materialBasis(content, catalog.materials, catalog.digest, origin, b.validation, account.role === 'User');
         requireV2(basis.state === 'verified' && basis.businessValid, 'MERGE_CONTENT_INVALID'); return basis.catalogBasis.quantityPolicy;
       });
       const preview = previewExactMerge(b.sources, policies, b.validation); requireV2(preview.ok, preview.ok ? '' : preview.code);

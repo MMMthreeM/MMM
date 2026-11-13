@@ -25,6 +25,28 @@
 .text-source-resolution { padding-block:.75rem; }
 .text-source-resolution .text-order-original { margin-bottom:.5rem; }
 .v2-material-line .material-notes .notes-summary { max-width:70ch; }
+/* Only the administrator dialog receives the roomier material editor. */
+.order-editor .editor-lines { display:grid; gap:1.75rem; }
+.order-editor .v2-material-line { min-width:0; margin:0; padding:1.25rem; border:1px solid var(--line); border-radius:10px; }
+.order-editor .v2-material-line legend { padding:0 .5rem; font-size:1rem; font-weight:700; color:var(--ink); }
+.order-editor .v2-material-line + .v2-material-line { margin-top:0; }
+.order-editor .admin-material-picker { margin:0 0 1.5rem; padding-bottom:1.25rem; border-bottom:1px solid var(--line); }
+.order-editor .material-main { grid-template-columns:minmax(0,1fr) auto; gap:1rem; margin-block:1rem 1.5rem; }
+.order-editor .material-main .material-line-heading { grid-column:1/-1; }
+.order-editor .material-line-heading strong { font-size:1.125rem; line-height:1.6; font-weight:650; }
+.order-editor .material-line-heading .field-hint { font-size:.8125rem; margin-top:.35rem; }
+.order-editor .material-main .material-line-quantity { grid-column:1; width:288px; max-width:100%; }
+.order-editor .material-main .material-confirmation { grid-column:2; margin-top:1.6rem; }
+.order-editor .v2-material-line .form-label { font-size:.8125rem; font-weight:600; margin-bottom:.5rem; }
+.order-editor .material-replacement { margin-block:1.25rem; gap:1.25rem; }
+.order-editor .material-vendor { margin-block:1.25rem; }
+.order-editor .material-secondary { border-top:1px solid var(--line); padding-top:1rem; margin-top:1.5rem; gap:.75rem; }
+.order-editor .material-notes .notes-summary { font-size:.875rem; line-height:1.65; }
+@media(max-width:640px) {
+  .order-editor .v2-material-line { padding:1rem; }
+  .order-editor .material-main { grid-template-columns:minmax(0,1fr); }
+  .order-editor .material-main .material-confirmation { grid-column:1; margin-top:0; }
+}
 @media(max-width:767px) {
   .order-entry-panel { padding:1rem; }
   .material-main { grid-template-columns:minmax(0,1fr) 105px; }

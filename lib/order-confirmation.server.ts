@@ -30,7 +30,7 @@ function positiveTicks(value: number): string {
   const q = validateExactQuantity(value, neutral); requireV2(q.ok, 'CATALOG_QUANTITY_PRECISION_INVALID'); return q.ticks;
 }
 /** The catalog is a complete server-side raw observation, not request JSON. */
-export function materialBasis(content: SevenContent, catalog: readonly CatalogMaterial[], catalogDigest: string, origin: B1Origin, mode: 'formal' | 'draft-basic'): B1CurrentBasis {
+export function materialBasis(content: SevenContent, catalog: readonly CatalogMaterial[], catalogDigest: string, origin: B1Origin, mode: 'formal' | 'draft-basic', allowPendingVendor = false): B1CurrentBasis {
   const fp = fingerprintMaterialContent(MATERIAL_CONTENT_FIELDS, MATERIAL_CONTENT_FIELDS.map(k => content[k]));
   requireV2(fp.ok, 'MATERIAL_CONTENT_INVALID');
   for (const [k, max] of [['Item_Name', 200], ['Unit', 30], ['Vendor', 100], ['Remarks', 500], ['Material_ID', 256], ['Original_Item_Name', 200]] as const) requireV2(content[k].kind === 'no-input' || content[k].kind === 'string' && content[k].value.length <= max, 'MATERIAL_CONTENT_INVALID');
@@ -45,7 +45,7 @@ export function materialBasis(content: SevenContent, catalog: readonly CatalogMa
     minTicks: m ? positiveTicks(m.minimum) : '1', maxTicks: '9007199254740991', stepTicks: m ? positiveTicks(m.step) : '1', stepAnchor: 'zero' };
   const q = content.Quantity.kind === 'number' ? validateExactQuantity(content.Quantity.value, quantityPolicy, mode) : { ok: false };
   const businessValid = q.ok && (mode !== 'draft-basic' || content.Quantity.kind === 'number' && Number.isSafeInteger(content.Quantity.value))
-    && (mode === 'draft-basic' || ['伸泰', '益詮', '賀冠'].includes(value(content, 'Vendor')))
+    && (mode === 'draft-basic' || allowPendingVendor && !materialId && !value(content, 'Vendor') || ['伸泰', '益詮', '賀冠'].includes(value(content, 'Vendor')))
     && (!m?.requiresRemarks || mode === 'draft-basic' || /\S/u.test(value(content, 'Remarks')));
   const catalogBasis: B1CatalogBasis = { schemaVersion: 1, mode: unresolved ? 'unresolved' : m ? 'catalog' : 'custom', authorityRef: `catalog:${catalogDigest}`, basisVersion: 'mmm-catalog:v2',
     materialFacts: m ? { materialId: m.id, itemName: m.name, unit: m.unit, vendor: m.vendor, requiresRemarks: m.requiresRemarks } : null,
