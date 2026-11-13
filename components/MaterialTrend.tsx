@@ -25,7 +25,7 @@ export default function MaterialTrend({ timeline, series, material, selectedMont
   const chartWidth = Math.max(260, width), height = 270, left = 42, right = 26, top = 35, bottom = 220;
   const x = (index: number) => visible.length === 1 ? (chartWidth + left - right) / 2 : left + index / (visible.length - 1) * (chartWidth - left - right);
   return <section className="surface material-trend" aria-labelledby={titleId}>
-    <div className="trend-heading"><div><h2 className="section-title" id={titleId}>{material || '全部材料'}叫料趨勢</h2><p className="field-hint">{material ? '依單位分開統計，點選月份查看相關需求單。' : '每月正式需求單數；選取材料後查看需求數量。'}</p></div><span className="trend-period">逐月</span></div>
+    <div className="trend-heading"><div><h2 className="section-title" id={titleId}>叫料趨勢</h2><p className="field-hint">{material ? '依單位分開統計，點選月份查看相關需求單。' : '每月正式需求單數；選取材料後查看需求數量。'}</p></div></div>
     <div className={`trend-window ${timeline.length <= size ? 'trend-window-complete' : ''}`} aria-label="圖表月份範圍">
       {timeline.length > size && (start > 0 ? <button type="button" className="btn btn-secondary" onClick={() => move(-1)} aria-label="查看較早月份">前 {size} 個月</button> : <span className="trend-window-boundary">已到最早月份</span>)}
       <div className="trend-window-label"><strong aria-live="polite">{visible[0]?.replace('-', '/')} — {visible.at(-1)?.replace('-', '/')}</strong><span>{timeline.length <= size ? `已顯示全部 ${timeline.length} 個月` : `顯示第 ${start + 1}–${end} 個月，共 ${timeline.length} 個月`}</span></div>

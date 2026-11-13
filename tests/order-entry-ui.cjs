@@ -35,7 +35,7 @@ const fetch=globalThis.fetch;globalThis.fetch=(url,...args)=>{const target=new U
  const shot=async(name,fullPage=true)=>{await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(artifacts,name+'.png'),fullPage});const g=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,rows:document.querySelectorAll('.crew-final-review li').length}));assert(g.scroll<=g.width+1,JSON.stringify(g));results.push({capture:name,...g});};
  const go=async(url='/request')=>{await page.goto(base+url);await page.locator('.v2-editor').waitFor();await page.waitForTimeout(100);};
  const analyze=async(value)=>{await page.getByRole('button',{name:'貼上叫料文字',exact:true}).click();await page.getByRole('textbox',{name:'叫料文字',exact:true}).fill(value);await page.getByRole('button',{name:'分析叫料文字',exact:true}).click();await page.getByRole('region',{name:'叫料分析結果',exact:true}).waitFor();};
- const next=()=>page.getByRole('button',{name:/確認清單並送出（/}).click();
+ const next=()=>page.getByRole('button',{name:/下一步：確認清單（/}).click();
  const addText=()=>page.getByRole('button',{name:/^加入待送出清單（/}).click();
  const pick=async(query)=>{await page.getByRole('combobox',{name:'搜尋並選擇材料',exact:true}).fill(query);await page.getByRole('option').filter({hasText:query}).first().click();};
  try{

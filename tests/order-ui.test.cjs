@@ -102,3 +102,15 @@ test('integer quantity controls snap to catalog multiples and never produce deci
   assert.equal(q.stepIntegerQuantity(3,1,1,1.5),6);
   assert.equal(q.stepIntegerQuantity(2,1,0,-1),null);
 });
+
+const {orderListPreview}=load('lib/order-list-preview');
+test('List preview finds later material matches without changing the complete order',()=>{
+  const rows=Array.from({length:8},(_,i)=>({...row(i+1),materialName:i===7?'XLPE 600V 最後一筆電纜':'材料 '+i}));
+  const group=view.groupOrders(rows)[0],before=structuredClone(group);
+  assert.deepEqual(orderListPreview(group).map(i=>i.materialName),['材料 0','材料 1']);
+  assert.equal(orderListPreview(group,'','600v 電纜')[0].lineId,rows[7].lineId);
+  assert.equal(orderListPreview(group,rows[6].materialName)[0].lineId,rows[6].lineId);
+  assert.equal(orderListPreview(group).length,2);assert.deepEqual(group,before);
+  assert.equal(view.filterOrderGroups([group],{search:'最後一筆'}).length,1);
+  assert.equal(view.filterOrderGroups([group],{search:'不存在的材料'}).length,0);
+});

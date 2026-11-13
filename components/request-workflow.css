@@ -37,9 +37,9 @@
 .crew-text-import .import-original summary { min-height:44px; color:var(--delta-blue-strong); }
 .crew-final-review { margin-top:0; }
 .crew-final-review li { padding:1rem 0; border-bottom:1px solid var(--line); }
-.crew-review-material { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:1rem; align-items:baseline; }
+.crew-review-material { display:block; max-width:76ch; }
 .crew-review-material strong { overflow-wrap:anywhere; font-weight:600; }
-.crew-review-material > span { white-space:nowrap; font-weight:600; font-variant-numeric:tabular-nums; }
+.crew-review-material > span { display:inline-block; margin-left:.75rem; white-space:nowrap; font-weight:600; font-variant-numeric:tabular-nums; }
 .crew-review-row-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:1rem; margin-top:.5rem; }
 .crew-review-row-actions .btn { min-height:44px; padding:.5rem 0; background:transparent; border:0; }
 .crew-review-actions { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.75rem; margin-top:1.5rem; }

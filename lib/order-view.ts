@@ -58,7 +58,7 @@ export function filterOrderGroups(groups: OrderGroup[], filters: OrderFilters) {
     const isDateQuery = /^\d{4}-\d{2}(?:-\d{2})?$/.test(dateQuery) || /^\d{6}(?:\d{2})?$/.test(search);
     const matchesSearch = !search || (isDateQuery
       ? date.includes(dateQuery) || date.replace(/-/g, '').includes(search)
-      : orderId.toLowerCase().includes(search) || first.orderDate.toLowerCase().includes(dateQuery));
+      : orderId.toLowerCase().includes(search) || first.orderDate.toLowerCase().includes(dateQuery) || items.some(item => item.materialName.toLowerCase().includes(search)));
     return (!filters.company || first.reqCompany === filters.company)
       && (!filters.region || first.reqRegion === filters.region)
       && (!filters.status || (['待審核', '退回待修改'].includes(filters.status) ? orderPresentation(group).label === filters.status : items.every((item) => item.status === filters.status)))
