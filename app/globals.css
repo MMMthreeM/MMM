@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Quantity fields use the explicit minus/plus controls. */
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
 .loading-state { padding: 2rem; display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; color: var(--muted); }
 .loading-spinner { width: 22px; height: 22px; border: 2px solid #dce2e6; border-top-color: #0077c8; border-radius: 50%; animation: loading-turn .8s linear infinite; }
 .loading-lines { flex-basis: 100%; display: grid; gap: .75rem; }

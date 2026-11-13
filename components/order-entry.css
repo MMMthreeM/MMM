@@ -11,7 +11,7 @@
 .shared-delivery-note fieldset { border:0; padding:0; margin-top:.75rem; }
 .shared-delivery-note .check-target { justify-content:flex-start; overflow-wrap:anywhere; }
 .v2-material-line { display:block; padding-block:1rem; }
-.material-main { display:grid; grid-template-columns:minmax(0,1fr) 160px 105px; align-items:start; gap:.5rem 1rem; }
+.material-main { display:grid; grid-template-columns:minmax(0,1fr) 288px 105px; align-items:start; gap:.5rem 1rem; }
 .material-main > * { min-width:0; }
 .v2-material-line .material-line-heading { grid-column:1; }
 .v2-material-line .material-line-quantity { grid-column:2; }

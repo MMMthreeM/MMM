@@ -91,12 +91,15 @@
 .order-history-panel > summary { padding-block: .75rem; font-weight: 600; }
 .analytics-frame .page-title { font-size: 1.75rem; }
 .order-list-table-wrap { container-type: inline-size; }
+.order-list-table-wrap > .order-list-table { width: 100%; min-width: 0; max-width: 100%; }
 .order-list-table { table-layout: fixed; }
 .order-list-table th:first-child { width: 230px; }
 .order-list-table thead th:nth-last-child(-n+2) { width: 120px; }
 .order-list-table td:nth-last-child(-n+2) { width: 120px; }
 .order-list-table .analytics-order-materials > li > span { white-space: normal; }
 .order-list-table .analytics-material-quantity { white-space: nowrap; }
+.order-list-table .analytics-order-materials > li,.order-list-table .order-list-remarks { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.order-list-table .order-card.is-selected { outline: 0; border-color: var(--line); }
 .order-list-table .order-reference { overflow-wrap: anywhere; }
 .order-list-table .order-list-actions { vertical-align: top; }
 .order-list-actions .data-link { display: block; padding: .35rem 0; min-height: 44px; }
@@ -108,6 +111,14 @@
 .order-list-table .order-list-detail-row > td > details { text-align: left; }
 .admin-order-list .order-list-table tbody tr:has(input:checked) { background: var(--soft-blue); }
 .history-tabs button { background: transparent; border-radius: 0; }
+.filter-chips { margin-block: .9rem 1.25rem; gap: .65rem; }
+.filter-chips:empty { display: none; }
+.filter-chips .date-range-chip { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .55rem; }
+.date-range-chip > span { white-space: nowrap; }
+.overview-pending .pending-order { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: stretch; }
+.pending-order-actions { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: .5rem; }
+.pending-order-wait { font-size: .875rem; color: var(--muted); white-space: nowrap; }
+.pending-order-actions .card-open { margin-top: 0; }
 @container (max-width: 800px) {
   .order-list-table { min-width: 0; }
   .order-list-table thead { display: none; }

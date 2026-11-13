@@ -14,6 +14,7 @@ import {submissionDisposition,mutationMessage} from '@/lib/order-form-state';
 import OrderHistoryPanel from '@/components/OrderHistoryPanel';
 import { OrderFacts, OrderMaterials } from './OrderReadView';
 import OrderListTable from './OrderListTable';
+import DateRangeChip from './DateRangeChip';
 import { canAdminMoveStatus, type OrderStatus } from '@/lib/order-domain';
 import SearchFilterBar from './SearchFilterBar';
 import Pagination, { usePagination } from '@/components/Pagination';
@@ -156,22 +157,22 @@ function ReviewContent() {
       <button className="btn btn-quiet self-end" onClick={() => { setFilters({}); setSelected(new Set()); }}>清除篩選</button>
     </div></SearchFilterBar>
     {invalidRange && <p role="alert" className="feedback-error mb-5">開始日期不能晚於結束日期。</p>}
-    <div className="filter-chips" aria-label="已套用管理條件">{Object.entries(filters).filter(([,value])=>value).map(([key,value])=><button key={key} aria-label={`移除管理條件 ${value}`} onClick={()=>updateFilter(key as keyof OrderFilters,'')}>{value} ×</button>)}</div>
+    <div className="filter-chips" aria-label="已套用管理條件"><DateRangeChip start={filters.startDate} end={filters.endDate} onClear={()=>{setFilters(current=>({...current,startDate:'',endDate:''}));setSelected(new Set());}}/>{Object.entries(filters).filter(([key,value])=>value&&key!=='startDate'&&key!=='endDate').map(([key,value])=><button key={key} aria-label={`移除管理條件 ${value}`} onClick={()=>updateFilter(key as keyof OrderFilters,'')}>{value} ×</button>)}</div>
     <section className="bulk-bar" aria-label="整單批次操作">
       <label className="check-target"><input ref={allBox} type="checkbox" checked={selectable.length > 0 && selectedGroups.length === selectable.length} disabled={!selectable.length || busy} onChange={(event) => setSelected(event.target.checked ? new Set(selectable.map((group) => group.orderId)) : new Set())} /><span>全選本次範圍</span></label>
       <strong aria-live="polite">已選取 {selectedGroups.length} 張單</strong>
       <div className="bulk-actions flex flex-wrap gap-2">
         <button className="btn btn-primary" disabled={busy || !canExportSelected} onClick={() => open({ type: 'export', scope: 'selected', ids: selectedGroups.map((group) => group.orderId), count: selectedGroups.reduce((sum, group) => sum + group.items.length, 0) })}>匯出勾選單據</button>
         <button className="btn btn-secondary" disabled={busy || !canApply('審核完畢')} onClick={() => open({ type: 'status', status: '審核完畢', ids: selectedGroups.map(group => group.orderId) })}>完成審核</button>
-        <button className="btn btn-secondary" disabled={busy || !canApply('準備出貨')} onClick={() => open({ type: 'status', status: '準備出貨', ids: selectedGroups.map(group => group.orderId) })}>設為準備出貨</button>
         <button className="btn btn-secondary" disabled={busy || !selectedGroups.some(group => group.items.some(item => canonicalVendor(item.vendor) === '賀冠'))} onClick={() => void requestQuotation()}>賀冠詢價</button>
+        <button className="btn btn-secondary" disabled={busy || !canApply('準備出貨')} onClick={() => open({ type: 'status', status: '準備出貨', ids: selectedGroups.map(group => group.orderId) })}>設為準備出貨</button>
         <button className="btn btn-secondary" disabled={busy || !canApply('已送達')} onClick={() => open({ type: 'status', status: '已送達', ids: selectedGroups.map((group) => group.orderId) })}>標記已送達</button>
         <button className="btn btn-danger" disabled={busy || !canApply('處理中')} onClick={() => open({ type: 'status', status: '處理中', ids: selectedGroups.map((group) => group.orderId) })}>退回修改</button>
       </div>
     </section>
     {selectedGroups.length > 0 && <div className="mobile-review-actions" aria-label="已選單據操作"><strong>已選 {selectedGroups.length} 張</strong><button className="btn btn-primary" disabled={busy || !canApply('審核完畢')} onClick={() => open({ type: 'status', status: '審核完畢', ids: selectedGroups.map((group) => group.orderId) })}>完成審核</button><details ref={mobileMore} className="mobile-review-more"><summary className="btn btn-secondary">更多操作</summary><div><button className="btn btn-secondary" disabled={busy || !canExportSelected} onClick={() => open({ type: 'export', scope: 'selected', ids: selectedGroups.map((group) => group.orderId), count: selectedGroups.reduce((sum, group) => sum + group.items.length, 0) })}>匯出勾選單據</button><button className="btn btn-secondary" disabled={busy || !canApply('審核完畢')} onClick={() => open({ type: 'status', status: '審核完畢', ids: selectedGroups.map(group => group.orderId) })}>完成審核</button>
-        <button className="btn btn-secondary" disabled={busy || !canApply('準備出貨')} onClick={() => open({ type: 'status', status: '準備出貨', ids: selectedGroups.map(group => group.orderId) })}>設為準備出貨</button>
-        <button className="btn btn-secondary" disabled={busy || !selectedGroups.some(group => group.items.some(item => canonicalVendor(item.vendor) === '賀冠'))} onClick={() => void requestQuotation()}>賀冠詢價</button><button className="btn btn-secondary" disabled={busy || !canApply('已送達')} onClick={() => open({ type: 'status', status: '已送達', ids: selectedGroups.map((group) => group.orderId) })}>標記已送達</button><button className="btn btn-danger" disabled={busy || !canApply('處理中')} onClick={() => open({ type: 'status', status: '處理中', ids: selectedGroups.map((group) => group.orderId) })}>退回修改</button><p className="field-hint">套用到勾選的完整單據；不符合階段的操作會停用。</p></div></details></div>}
+        <button className="btn btn-secondary" disabled={busy || !selectedGroups.some(group => group.items.some(item => canonicalVendor(item.vendor) === '賀冠'))} onClick={() => void requestQuotation()}>賀冠詢價</button>
+        <button className="btn btn-secondary" disabled={busy || !canApply('準備出貨')} onClick={() => open({ type: 'status', status: '準備出貨', ids: selectedGroups.map(group => group.orderId) })}>設為準備出貨</button><button className="btn btn-secondary" disabled={busy || !canApply('已送達')} onClick={() => open({ type: 'status', status: '已送達', ids: selectedGroups.map((group) => group.orderId) })}>標記已送達</button><button className="btn btn-danger" disabled={busy || !canApply('處理中')} onClick={() => open({ type: 'status', status: '處理中', ids: selectedGroups.map((group) => group.orderId) })}>退回修改</button><p className="field-hint">套用到勾選的完整單據；不符合階段的操作會停用。</p></div></details></div>}
     <p className="result-count">共 {visible.length} 張需求單</p>
     {batchResults.length>0&&<section className="surface review-batch-results p-4" aria-label="逐張處理結果"><h2 className="section-title">本次處理結果</h2><ul>{batchResults.map(result=><li key={result.id}>{result.id}：{result.result}</li>)}</ul></section>}
     {loading ? <LoadingState label="正在讀取需求單…" /> : error&&!orders.length?null : !visible.length ? <div className="surface empty-state">目前沒有符合條件的正式需求單。</div> : <section id="review-results" className="surface admin-order-list"><OrderListTable groups={pagination.items} showCompany material={filters.material} hrefFor={group=>'/admin?order='+encodeURIComponent(group.orderId)}

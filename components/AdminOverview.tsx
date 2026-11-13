@@ -5,7 +5,7 @@ import WorkQueue from './WorkQueue';
 import LoadingState from '@/components/LoadingState';
 
 import { useOrders } from '@/components/useOrders';
-import { groupOrders, isReturnedOrder, waitingDays } from '@/lib/order-view';
+import { groupOrders, isReturnedOrder, waitingDays, orderPresentation } from '@/lib/order-view';
 
 export default function AdminOverview() {
   const { orders, loading, error, refresh } = useOrders(true);
@@ -25,7 +25,7 @@ export default function AdminOverview() {
         {label:'退回待修改',count:returned.length,href:'/admin?status=退回待修改',description:'等待工班修改並重新送出'}
       ]}/>
       <section className="mt-8 overview-pending"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="section-title">待審清單</h2><p className="mt-1 text-sm text-[var(--muted)]">依等待時間排序；天數自需求日期計算。另有 <Link className="underline" href="/admin?status=%E9%80%80%E5%9B%9E%E5%BE%85%E4%BF%AE%E6%94%B9">{returned.length} 張退回待修改</Link>，等待工班修改。</p></div><span className="text-sm font-semibold">最久等待 {pending.length ? waitingDays(pending[0].first.orderDate) : 0} 天</span></div>
-        {!pending.length ? <div className="surface empty-state">目前沒有待審核需求。</div> : <div className="request-list">{pending.map(group=><Link key={group.orderId} className="recent-order" href={`/admin?order=${encodeURIComponent(group.orderId)}`}><OrderSummary group={group}/><span className="card-open">等待 {waitingDays(group.first.orderDate)} 天 · 查看單據</span></Link>)}</div>}
+        {!pending.length ? <div className="surface empty-state">目前沒有待審核需求。</div> : <div className="request-list">{pending.map(group=>{const presentation=orderPresentation(group);return <Link key={group.orderId} className="recent-order pending-order" href={`/admin?order=${encodeURIComponent(group.orderId)}`}><OrderSummary group={group} showStatus={false}/><span className="pending-order-actions"><span className={`status status-${presentation.tone}`}>{presentation.label}</span><span className="pending-order-wait">等待 {waitingDays(group.first.orderDate)} 天</span><span className="card-open">查看單據</span></span></Link>;})}</div>}
       </section>
     </>}
   </main>;

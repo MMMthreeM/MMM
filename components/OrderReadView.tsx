@@ -2,10 +2,10 @@ import type { OrderGroup } from '@/lib/order-view';
 import { isReturnedOrder, orderPresentation } from '@/lib/order-view';
 
 /** Shared reading order for home, history, review and analytics. */
-export function OrderSummary({ group }: { group: OrderGroup }) {
+export function OrderSummary({ group, showStatus = true }: { group: OrderGroup; showStatus?: boolean }) {
   const presentation = orderPresentation(group);
   return <div className="request-summary">
-    <div className="request-summary-heading"><strong>{group.status === '編輯中' ? group.first.draftName || '工班草稿' : group.first.orderDate}</strong><span className={`status status-${presentation.tone}`}>{presentation.label}</span></div>
+    <div className="request-summary-heading"><strong>{group.status === '編輯中' ? group.first.draftName || '工班草稿' : group.first.orderDate}</strong>{showStatus && <span className={`status status-${presentation.tone}`}>{presentation.label}</span>}</div>
     <p className="request-summary-meta">{group.first.reqCompany} · {group.first.reqUser} · {group.items.length} 筆材料</p>
     <p className="request-summary-preview">{group.items.slice(0, 2).map(item => item.materialName).join('、')}{group.items.length > 2 ? `，另 ${group.items.length - 2} 筆` : ''}</p>
     {isReturnedOrder(group) && <p className="card-return">退回原因：{group.first.returnInfo?.reason || group.first.returnNote}</p>}

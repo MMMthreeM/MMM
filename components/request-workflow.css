@@ -12,9 +12,9 @@
 .entry-material .v2-material-line { border:0; padding:1rem 0 0; }
 .entry-material .v2-material-line legend { display:none; }
 .entry-material[data-has-rule=true] .material-line-heading { display:none; }
-.without-confirmation .material-main { grid-template-columns:minmax(0,1fr) 160px; }
+.without-confirmation .material-main { grid-template-columns:minmax(0,1fr) 288px; }
 .entry-material .without-confirmation .material-main { display:block; }
-.entry-material .material-line-quantity { display:block; max-width:240px; }
+.entry-material .material-line-quantity { display:block; max-width:320px; }
 .without-confirmation .material-line-quantity { grid-column:2; }
 .crew-cart-heading,.analysis-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
 .crew-cart ul,.crew-final-review ol { list-style:none; padding:0; margin:1rem 0; }
