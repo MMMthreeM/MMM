@@ -1,0 +1,162 @@
+{
+  "results": [
+    {
+      "capture": "empty-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 0
+    },
+    {
+      "capture": "analysis-13-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 0
+    },
+    {
+      "capture": "analysis-13-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 0
+    },
+    {
+      "capture": "analysis-13-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 0
+    },
+    {
+      "capture": "review-3-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 3
+    },
+    {
+      "capture": "review-3-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 3
+    },
+    {
+      "capture": "review-3-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 3
+    },
+    {
+      "capture": "review-3-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 3
+    },
+    {
+      "capture": "review-10-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 10
+    },
+    {
+      "capture": "review-10-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 10
+    },
+    {
+      "capture": "review-10-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 10
+    },
+    {
+      "capture": "review-10-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 10
+    },
+    {
+      "capture": "review-13-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 13
+    },
+    {
+      "capture": "review-13-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 13
+    },
+    {
+      "capture": "review-13-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 13
+    },
+    {
+      "capture": "review-13-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 13
+    },
+    {
+      "capture": "review-100-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 100
+    },
+    {
+      "capture": "review-100-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 100
+    },
+    {
+      "capture": "review-100-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 100
+    },
+    {
+      "capture": "review-100-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 100
+    },
+    {
+      "capture": "unknown-result-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 1
+    },
+    {
+      "capture": "admin-preserved-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 0
+    }
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "intent": "create-formal",
+      "items": 2
+    },
+    {
+      "intent": "create-draft",
+      "items": 1
+    },
+    {
+      "intent": "save-draft",
+      "items": 0
+    },
+    {
+      "intent": "submit-draft"
+    },
+    {
+      "intent": "resubmit-order"
+    },
+    {
+      "intent": "create-formal",
+      "items": 1
+    }
+  ],
+  "passed": true
+}

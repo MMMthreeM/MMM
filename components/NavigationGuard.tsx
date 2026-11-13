@@ -37,7 +37,18 @@ export default function NavigationGuard({ children }: { children: React.ReactNod
     };
     window.addEventListener('beforeunload', unload);
     document.addEventListener('click', navigate, true);
-    return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', navigate, true); };
+    // Navigation API can cancel same-document Back/Forward before React loses
+    // the form. It is progressive enhancement; beforeunload covers full exits.
+    const browserNavigation=(window as unknown as {navigation?:EventTarget&{currentEntry?:{index:number}}}).navigation;
+    const traverse=(event:Event)=>{
+      const e=event as Event&{navigationType?:string;canIntercept?:boolean;destination?:{index:number}};
+      if(e.navigationType!=='traverse'||!e.canIntercept||!e.cancelable||!sources.current.size)return;
+      const current=browserNavigation?.currentEntry?.index,target=e.destination?.index;
+      if(current===undefined||target===undefined)return;
+      e.preventDefault();request(()=>window.history.go(target-current));
+    };
+    browserNavigation?.addEventListener('navigate',traverse);
+    return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', navigate, true);browserNavigation?.removeEventListener('navigate',traverse); };
   }, [request, router]);
   const cancel = () => { pending.current = null; dialog.current?.close(); setPrompt(false); };
   return <GuardContext.Provider value={{ register, request }}>{children}

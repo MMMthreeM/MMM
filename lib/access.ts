@@ -1,4 +1,5 @@
 import { readUsers } from '@/lib/sheet-table';
+import { registeredCrews } from '@/lib/order-people';
 import { getServerSession } from 'next-auth/next';
 import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
@@ -23,7 +24,7 @@ export async function requireAccount(adminOnly = false) {
   if (!row || !['Admin', 'User'].includes(String(row.role))) throw new AccessError('此帳號尚未取得平台使用權限。', 403);
   if (adminOnly && row.role !== 'Admin') throw new AccessError('此功能僅供管理者使用。', 403);
   if (row.role === 'User' && !row.company) throw new AccessError('此帳號尚未設定所屬工班。', 403);
-  const account: Account = { email, role: row.role as Account['role'], company: String(row.company ?? ''), region: String(row.region ?? ''), name: String(row.name || email.split('@')[0]) };
+  const account: Account = { email, role: row.role as Account['role'], company: String(row.company ?? ''), region: String(row.region ?? ''), name: String(row.name ?? '').trim(), ...(row.role === 'Admin' ? {crews:registeredCrews(users)} : {}) };
   return { account, sheets, users };
 }
 

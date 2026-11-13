@@ -1,134 +1,206 @@
 'use client';
-import { auditPendingNotice } from '@/lib/mutation-notice';
-
-
-
-import { useEffect, useRef, useState } from 'react';
+import './order-entry.css';
+import './request-workflow.css';
+import MaterialEntryForm from './MaterialEntryForm';
+import { apiMessage } from '@/lib/api-message';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import MaterialPicker from '@/components/MaterialPicker';
-import TextOrderImport from '@/components/TextOrderImport';
+import TextOrderImport, {type ImportedItem} from '@/components/TextOrderImport';
+import {textQuantity} from '@/lib/text-order';
+import OrderMaterialLine, {editorLineIssues} from '@/components/OrderMaterialLine';
+import {completedOrderHref,detailHref,safeReturnTo,publishConfirmedFeedback} from '@/lib/order-navigation';
+import OrderHistoryPanel from '@/components/OrderHistoryPanel';
 import LoadingState from '@/components/LoadingState';
-import type { CatalogMaterial } from '@/lib/material-catalog';
-import { isUserEditableStatus, matchMaterial } from '@/lib/order-domain';
+import { OrderAttemptRecovery, useAttemptRecovery } from '@/components/OrderAttemptRecovery';
+import { serializeAttemptRecovery } from '@/lib/order-attempt-recovery';
+import {useAccount} from '@/components/AppShell';
 import { useUnsavedChanges } from '@/components/NavigationGuard';
+import { groupOrders, type OrderGroup, type OrderRow } from '@/lib/order-view';
+import type { CatalogMaterial } from '@/lib/material-catalog';
+import type { SevenContent, SourceRef } from '@/lib/order-change-set';
+import type { V2MutationRequest, SubmissionResult } from '@/lib/order-v2-contract';
+import { editableRows, reorderEditorRows, editorChangeSet, updateEditorLine, mergeEditorLines, contentText, textCell, setDeliveryNote, submissionDisposition, mutationMessage, type EditorState, type FormMode } from '@/lib/order-form-state';
 
-type Material = CatalogMaterial;
-type CartItem = { materialName: string; quantity: number; unit: string; vendor: string; remarks: string; originalId: string };
+async function read(url:string) { const r=await fetch(url,{cache:'no-store'});const b=await r.json();if(!r.ok)throw Error(apiMessage(b,'讀取失敗，請稍後重新載入。'));return b; }
+async function confirmation(body:unknown) {const r=await fetch('/api/orders/confirmation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const b=await r.json();if(!r.ok)throw Error(mutationMessage(b.code));return b;}
 
+const refKey=(r:SourceRef)=>r.kind==='new'?r.clientKey:r.lineId;
+export function RequestHeading(){const params=useSearchParams();return <><nav className="breadcrumb" aria-label="位置"><Link href={safeReturnTo(params.get('returnTo'))}>返回原位置</Link><span>/ 材料需求</span></nav><div className="page-heading"><div><h1 className="page-title">{params.get('action')==='reorder'?'建立新需求 · 再訂一次':params.has('loadOrderId')?'編輯材料需求':'建立材料需求'}</h1></div><Link className="btn btn-secondary" href="/dashboard?tab=draft">開啟草稿</Link></div></>;}
 export default function OrderForm() {
-  const router = useRouter();
-  const params = useSearchParams();
-  const processed = useRef<string | null>(null);
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [catalogLoaded, setCatalogLoaded] = useState(false);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [textPending, setTextPending] = useState(false);
-  const [selectedId, setSelectedId] = useState('');
-  const [customName, setCustomName] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [remarks, setRemarks] = useState('');
-  const [step, setStep] = useState<1 | 2>(1);
-  const [editIndex, setEditIndex] = useState<number | null>(null);
-  const [draftName, setDraftName] = useState('');
-  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-  const [originalStatus, setOriginalStatus] = useState('');
-  const [originalDate, setOriginalDate] = useState('');
-  const [baseline, setBaseline] = useState(JSON.stringify({ items: [], draftName: '' }));
-  const [fieldError, setFieldError] = useState<{ field: string; message: string } | null>(null);
-  const fieldFocus = useRef<string | null>(null);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [complete, setComplete] = useState<{ orderId: string; message: string; completedAt: string; notice?: string } | null>(null);
-  const selected = materials.find((material) => material.id === selectedId);
-  const canSaveDraft = originalStatus !== '處理中';
-  useUnsavedChanges(!complete && (Boolean(selectedId || customName || remarks || editIndex !== null) || JSON.stringify({ items: cart, draftName }) !== baseline));
-  useEffect(() => {
-    if (fieldError && fieldFocus.current) {
-      const field = document.getElementById(fieldFocus.current);
-      field?.focus(); field?.scrollIntoView({ block: 'center', behavior: 'instant' });
-      fieldFocus.current = null;
-    }
-  }, [fieldError]);
-  const invalid = (field: string, message: string) => { fieldFocus.current = field; setFieldError({ field, message }); setError(''); };
-  useEffect(() => {
-    fetch('/api/materials').then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.error); setMaterials(data.data ?? []); setCatalogLoaded(true); }).catch(() => setError('材料庫暫時無法載入，請重新整理後再試。'));
-  }, []);
-  useEffect(() => {
-    const id = params.get('loadOrderId');
-    const action = params.get('action');
-    if (!id || !catalogLoaded || processed.current === id) return;
-    let active = true;
-    fetch('/api/orders').then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '無法載入需求單。');
-      if (!active) return;
-      const rows = (data.data as Array<CartItem & { orderId: string; orderDate: string; draftName: string; status: string; catalogId?: string }>).filter((row) => row.orderId === id);
-      if (!rows.length) throw new Error('找不到可載入的需求單。');
-      if (action === 'edit' && rows.some((row) => !isUserEditableStatus(row.status))) throw new Error('此單已進入審核，無法修改。可從歷史需求單選擇再訂一次。');
-      const loaded = rows.map((row) => {
-        const material = materials.find(item => item.id === row.catalogId) || matchMaterial(materials, row);
-        return { materialName: material?.name || row.materialName, quantity: Number(row.quantity), unit: material?.unit || row.unit, vendor: material?.vendor || row.vendor, remarks: row.remarks ?? '', originalId: material?.id ?? 'other' };
-      });
-      setBaseline(JSON.stringify({ items: action === 'edit' ? loaded : [], draftName: action === 'edit' ? rows[0].draftName || '' : '' }));
-      setOriginalDate(rows[0].orderDate || ''); setCart(loaded); setOriginalStatus(action === 'edit' ? rows[0].status : '');
-      setEditingOrderId(action === 'edit' ? id : null); setDraftName(action === 'edit' ? rows[0].draftName || '' : '');
-      setMessage(action === 'edit' ? '已載入需求單，儲存後才會更新原單。' : '已帶入歷史材料，送出後會建立新單。');
-      setStep(2); processed.current = id;
-    }).catch((reason) => { if (active) setError(reason.message || '載入失敗，請稍後再試。'); });
-    return () => { active = false; };
-  }, [catalogLoaded, materials, params, router]);
-  const select = (id: string) => { if (id !== selectedId) { setSelectedId(id); setQuantity(id === 'other' ? 1 : materials.find((entry) => entry.id === id)?.minQty ?? 1); setRemarks(''); } setError(''); setFieldError(null); };
-  const itemLabel = (item: CartItem) => materials.find((material) => material.id === item.originalId)?.displayName || item.materialName;
-  const reset = () => { setSelectedId(''); setCustomName(''); setQuantity(1); setRemarks(''); setEditIndex(null); };
-  const add = () => {
-    if (!selectedId) return setError('請先選擇材料。');
-    if (selectedId === 'other' && !customName.trim()) return invalid('custom-material', '請填寫自訂材料名稱。');
-    if (!Number.isSafeInteger(quantity) || quantity <= 0) return invalid('request-quantity', '數量必須是正整數。');
-    if (selected && (quantity < selected.minQty || quantity % selected.stepQty !== 0)) return invalid('request-quantity', `數量須至少 ${selected.minQty}，且為 ${selected.stepQty} 的倍數。`);
-    if (selected?.requiresRemarks && !remarks.trim()) return invalid('request-remarks', '混合材料請在備註確認各項品項、規格與數量。');
-    if (cart.length >= 100 && editIndex === null) return setError('每張需求單最多 100 筆材料，請先確認清單。');
-    const item = { materialName: selectedId === 'other' ? customName.trim() : selected!.name, quantity, unit: selectedId === 'other' ? '式' : selected!.unit, vendor: selectedId === 'other' ? '' : selected!.vendor, remarks: remarks.trim(), originalId: selectedId };
-    setCart((items) => editIndex === null ? [...items, item] : items.map((entry, index) => index === editIndex ? item : entry));
-    setMessage(editIndex === null ? `已加入：${selected?.displayName || item.materialName}` : '已更新清單中的材料。');
-    setError(''); setFieldError(null); reset();
+  const account=useAccount();
+  const params=useSearchParams();const [loaded,setLoaded]=useState<{materials:CatalogMaterial[];group?:OrderGroup}|null>(null);const [error,setError]=useState('');
+  const id=params.get('loadOrderId'),reorder=params.get('action')==='reorder';const [reload,setReload]=useState(0);
+  const recovery=useAttemptRecovery(id?`${id}:${reorder?'reorder':'edit'}`:'new');
+  useEffect(()=>{let active=true;Promise.all([read('/api/materials'),id?read('/api/orders'):Promise.resolve({contractVersion:2,data:[]})]).then(([catalog,orders])=>{if(orders.contractVersion!==2)throw Error('需求資料版本不支援。');const group=id?groupOrders(orders.data).find(g=>g.orderId===id):undefined;if(id&&!group)throw Error('找不到所屬工班的需求單。');if(active){setLoaded({materials:catalog.data??[],group});setError('');}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id,reload,account?.role]);
+  if(recovery.record||recovery.invalid)return <OrderAttemptRecovery recovery={recovery}/>;
+  if(error)return <section className="feedback-error" role="alert"><p>{error}</p><button className="btn btn-secondary" onClick={()=>{setError('');setReload(n=>n+1);}}>重新載入材料與需求</button><Link className="btn btn-quiet" href={safeReturnTo(params.get('returnTo'))}>返回原位置</Link></section>;
+  if(!loaded)return <LoadingState label="正在載入材料與需求…"/>;
+
+  if(loaded.group&&(!loaded.group.consistent||loaded.group.items.some(r=>r.readState!=='verified'||!r.content||!r.lineRef)))return <p role="alert" className="feedback-error">需求資料待核實，目前僅可查看詳情。</p>;
+  const mode:FormMode=reorder?'reorder':account?.role==='Admin'&&loaded.group?'edit-pending':loaded.group?.status==='編輯中'?'edit-draft':loaded.group?.first.activeReturnRef?.startsWith('event:')?'resubmit':loaded.group?'edit-pending':'new-formal';
+  return <V2OrderEditor key={`${id??'new'}:${reorder}`} materials={loaded.materials} group={loaded.group} initialMode={mode} admin={account?.role==='Admin'&&Boolean(loaded.group)&&!reorder}/>;
+}
+export function V2OrderEditor({materials,group,initialMode,admin=false,onSaved}:{materials:CatalogMaterial[];group?:OrderGroup;initialMode:FormMode;admin?:boolean;onSaved?:(notice:string)=>Promise<void>}) {
+  const account=useAccount();
+  const router=useRouter();const params=useSearchParams();const returnTo=safeReturnTo(params.get('returnTo'));const counter=useRef(0);const newKey=()=>`c_${++counter.current}`;
+  const recovery=useAttemptRecovery(admin?'admin-editor':group?`${group.orderId}:${initialMode==='reorder'?'reorder':'edit'}`:'new');
+  const [targetCompany,setTargetCompany]=useState(group?.first.reqCompany||'');const [baselineCompany,setBaselineCompany]=useState(targetCompany);
+  const [mode,setMode]=useState(initialMode);const [originals,setOriginals]=useState<OrderRow[]>(initialMode==='reorder'?[]:group?.items??[]);
+  const [state,setState]=useState<EditorState>(()=>{let i=0;return group?(['reorder','edit-draft'].includes(initialMode)?reorderEditorRows(group.items,materials,()=>`loaded_${++i}`,initialMode==='reorder'):editableRows(group.items,false,()=>`loaded_${++i}`)):{lines:[],consumed:[],merges:[]};});
+  const [mergeMode,setMergeMode]=useState(false);
+  const [textPending,setTextPending]=useState(false),[composePending,setComposePending]=useState(false),[editingKey,setEditingKey]=useState<string|null>(null),[entryEpoch,setEntryEpoch]=useState(0),[draftOpen,setDraftOpen]=useState(false);
+  const [entryMode,setEntryMode]=useState<'text'|'search'>('search'),[entryOpen,setEntryOpen]=useState(!group);
+  const editPosition=useRef({y:0,key:''});
+  const [undo,setUndo]=useState<EditorState[]>([]);const [selected,setSelected]=useState<Set<string>>(new Set());
+  const [draftName,setDraftName]=useState(group?.first.draftName||'');const [picker,setPicker]=useState('');
+  const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [review,setReview]=useState(!admin&&Boolean(group));const [complete,setComplete]=useState<string|null>(null);
+  const [completionWarnings,setCompletionWarnings]=useState(false);
+  const [uncertain,setUncertain]=useState<{attemptRef?:string;message:string}|null>(null);const [dispositions,setDispositions]=useState<Record<string,{result:string;reason:string}>>({});
+  const [baseline,setBaseline]=useState(state);const [baselineName,setBaselineName]=useState(draftName);const sent=useRef(false);const submitting=useRef(false);
+  const savedDraftReceipt=useRef<Extract<SubmissionResult,{state:'confirmed'}>|null>(null);
+  const [search,setSearch]=useState(''),[problemsOnly,setProblemsOnly]=useState(false),[showIssues,setShowIssues]=useState(false),[pendingQty,setPendingQty]=useState<Set<string>>(new Set()),[inputEpoch,setInputEpoch]=useState(0);
+  const [mergePreview,setMergePreview]=useState<{sources:string[];content:SevenContent}|null>(null),[textSaveWarning,setTextSaveWarning]=useState(false);
+  const previewDialog=useRef<HTMLDialogElement>(null),textDialog=useRef<HTMLDialogElement>(null);
+  const currentState=useRef(state);useEffect(()=>{currentState.current=state;},[state]);
+  const requestLeave=useUnsavedChanges(!complete&&(uncertain!==null||state.lines.length!==baseline.lines.length||state.lines.some((line,index)=>line!==baseline.lines[index]&&JSON.stringify(line)!==JSON.stringify(baseline.lines[index]))||JSON.stringify(state.merges)!==JSON.stringify(baseline.merges)||targetCompany!==baselineCompany||draftName!==baselineName||textPending||composePending||pendingQty.size>0||Object.keys(dispositions).length>0));
+  const readOnly=Boolean(group&&(!group.consistent||group.items.some(r=>r.readState!=='verified'||!r.lineRef||!r.content)||(!admin&&initialMode!=='reorder'&&!['編輯中','處理中'].includes(group.status))));
+  const disabled=busy||uncertain!==null||readOnly||!recovery.ready;
+  const preserveAttempt=(attemptRef?:string)=>recovery.save(serializeAttemptRecovery(recovery.scope,attemptRef,mode,draftName,state,dispositions));
+  const freezeAttempt=(info:{attemptRef?:string;message:string})=>{try{preserveAttempt(info.attemptRef);}catch{/* Original pre-dispatch display snapshot remains; never replay on storage failure. */}setUncertain(info);};
+  const change=(next:EditorState)=>{setUndo(u=>[...u,state]);setState(next);setReview(false);setNotice('');setError('');};
+  const rules=useMemo(()=>new Map(materials.map(m=>[m.id,m])),[materials]);
+  const issues=useMemo(()=>state.lines.map(line=>editorLineIssues(line,rules.get(contentText(line.content,'Material_ID')),true,admin)),[state.lines,rules,admin]);
+  const problemCount=issues.filter((value,index)=>value.length>0||pendingQty.has(state.lines[index].uiKey)).length;
+  const focusLine=(key:string)=>{setReview(false);setSearch('');setProblemsOnly(false);if(!admin){setEditingKey(key);setEntryMode('search');}requestAnimationFrame(()=>{const row=admin?document.getElementById('edit-line-'+key):document.querySelector<HTMLElement>('.crew-entry-panel');row?.scrollIntoView({block:'start',behavior:'instant'});(row?.querySelector<HTMLElement>('[data-field="quantity"]')??row)?.focus({preventScroll:true});});};
+  const editLine=useCallback((key:string,content:SevenContent)=>{const before=currentState.current;setUndo(u=>[...u,before]);setState(updateEditorLine(before,key,content,originals));setReview(false);setNotice('');setError('');},[originals,setUndo,setState,setReview,setNotice,setError]);
+  const resolveLine=useCallback((key:string,content:SevenContent)=>{const before=currentState.current;setUndo(u=>[...u,before]);const next=updateEditorLine(before,key,content,originals);setState({...next,lines:next.lines.map(l=>l.uiKey===key?{...l,textSource:l.textSource?{...l.textSource,resolved:true,quantityIssue:contentText(content,'Material_ID')?textQuantity(materials.find(m=>m.id===contentText(content,'Material_ID'))!,l.textSource.parsed).issue:''}:undefined,comparison:l.comparison?{...l.comparison,accepted:true}:undefined}:l)});},[originals,materials,setUndo,setState]);
+  const checkLine=useCallback((key:string,checked:boolean)=>setState(s=>({...s,lines:s.lines.map(l=>l.uiKey===key?{...l,confirmed:checked&&!editorLineIssues(l,materials.find(m=>m.id===contentText(l.content,'Material_ID')),true).some(i=>i.field!=='confirmation')}:l)})),[materials,setState]);
+  const selectLine=useCallback((key:string,checked:boolean)=>setSelected(s=>{const next=new Set(s);if(checked)next.add(key);else next.delete(key);return next;}),[setSelected]);
+  const pendingLine=useCallback((key:string,pending:boolean)=>setPendingQty(s=>{if(s.has(key)===pending)return s;const next=new Set(s);if(pending)next.add(key);else next.delete(key);return next;}),[setPendingQty]);
+  const removeLine=useCallback((key:string)=>{const before=currentState.current;setUndo(u=>[...u,before]);setState({...before,lines:before.lines.filter(l=>l.uiKey!==key)});setPendingQty(s=>{const next=new Set(s);next.delete(key);return next;});setNotice('材料已從編輯清單移除，儲存前可撤銷。');},[setUndo,setState,setPendingQty,setNotice]);
+  const duplicateCount=state.lines.length-new Set(state.lines.map(l=>contentText(l.content,'Material_ID')||contentText(l.content,'Item_Name'))).size;
+  useEffect(()=>{if(mergePreview)previewDialog.current?.showModal();},[mergePreview]);
+  useEffect(()=>{if(textSaveWarning)textDialog.current?.showModal();},[textSaveWarning]);
+  const add=(material?:CatalogMaterial)=>{if(state.lines.length>=100)return setError('每單最多 100 筆材料。');const key=newKey();change({...state,lines:[...state.lines,{uiKey:key,ref:{kind:'new',clientKey:key},confirmed:false,content:{Material_ID:textCell(material?.id??''),Item_Name:textCell(material?.name??''),Original_Item_Name:textCell(''),Quantity:{kind:'number',value:material?.minQty??1},Unit:textCell(material?.unit??'式'),Vendor:textCell(material?.vendor??''),Remarks:textCell('')}}]});setPicker('');focusLine(key);};
+  const importText=(items:ImportedItem[])=>{
+    if(state.lines.length+items.length>100){setError('每單最多 100 筆材料。');return false;}
+    const batch=newKey(),imported=items.map(item=>{const key=newKey();return {uiKey:key,ref:{kind:'new' as const,clientKey:key},confirmed:false,content:item.content,textSource:{batch,parsed:item.parsed,resolved:true,quantityIssue:''},...(item.deliveryNote?{deliveryNote:{...item.deliveryNote,batch}}:{})};});
+    change({...state,lines:[...state.lines,...imported]});setNotice(`已從文字叫料加入 ${imported.length} 筆材料。`);return true;
   };
-  const edit = (index: number) => { const item = cart[index]; select(item.originalId); setCustomName(item.originalId === 'other' ? item.materialName : ''); setQuantity(item.quantity); setRemarks(item.remarks); setEditIndex(index); setStep(1); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-  const submit = async (status: '編輯中' | '處理中') => {
-    if (submitting) return;
-    if (!cart.length) return setError('請至少加入一項材料。');
-    if (textPending) { setStep(1); return setError('還有文字叫料未加入清單，請先確認加入或清除叫料文字。'); }
-    if (editIndex !== null) return setError('請先儲存或取消正在修改的材料。');
-    if (status === '編輯中' && !canSaveDraft) return;
-    if (status === '編輯中' && !draftName.trim()) return invalid('draft-name', '請為工班共享草稿填寫名稱。');
-    setSubmitting(true); setError('');
-    try {
-      const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: cart, status, draftName: draftName.trim(), existingOrderId: editingOrderId }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '送出失敗。');
-      setComplete({ orderId: data.orderId, message: data.message, notice: auditPendingNotice(response), completedAt: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }) }); setCart([]); setEditingOrderId(null); setDraftName('');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '網路連線錯誤。'); }
-    finally { setSubmitting(false); }
+  const commitMaterial=(line:EditorState['lines'][number])=>{
+    if(!editingKey&&state.lines.length>=100){setError('每單最多 100 筆材料。');return false;}
+    if(editingKey){const next=updateEditorLine(state,editingKey,line.content,originals);change({...next,lines:next.lines.map(l=>l.uiKey===editingKey?{...l,comparison:line.comparison,textSource:line.textSource}:l)});setEditingKey(null);setReview(true);setNotice('已更新清單中的材料。');}
+    else{const key=newKey();change({...state,lines:[...state.lines,{...line,uiKey:key,ref:{kind:'new',clientKey:key},confirmed:false}]});setEntryEpoch(n=>n+1);setNotice(`已加入：${contentText(line.content,'Item_Name')}`);}
+    setComposePending(false);return true;
   };
-  if (complete) return <section className="surface request-complete"><span className="success-symbol" aria-hidden="true"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m5 12 4 4L19 6" /></svg></span><h2 className="mt-5 text-2xl font-bold">{complete.message}</h2>{complete.notice && <p role="status" className="mt-3 text-sm text-[var(--warning)]">{complete.notice}</p>}<p className="mt-3 font-semibold">本次完成時間：{complete.completedAt}</p><p className="order-reference">單號：{complete.orderId}</p><div className="mt-7 grid gap-3 sm:grid-cols-2"><button className="btn btn-primary" onClick={() => { setBaseline(JSON.stringify({ items: [], draftName: '' })); processed.current = params.get('loadOrderId'); setOriginalStatus(''); setComplete(null); setStep(1); router.replace('/request'); }}>繼續建立需求</button><button className="btn btn-secondary" onClick={() => router.push('/dashboard')}>查看歷史需求單</button></div></section>;
-  return <div className="request-flow" onChangeCapture={() => { if (message) setMessage(''); }} onClickCapture={event => { if (message && event.target instanceof Element && event.target.closest('button,input,select,textarea,summary')) setMessage(''); }}>
-    <ol className="request-steps" aria-label="建立需求步驟">{['選擇材料', '確認並送出'].map((label, index) => <li key={label} aria-current={step === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}</ol>
-    {message && <p className="feedback-success mb-5" role="status"><svg className="request-feedback-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m5 12 4 4L19 6" strokeLinecap="round" strokeLinejoin="round" /></svg><span>{message}</span></p>}{error && <p className="feedback-error mb-5" role="alert">{error}</p>}
-    <div hidden={step !== 1 || editIndex !== null}><TextOrderImport materials={materials} remaining={100 - cart.length} onPendingChange={setTextPending} onAdd={items => { setCart(current => [...current, ...items]); setMessage(`已從文字叫料加入 ${items.length} 筆材料，請於送出前確認完整清單。`); setError(''); }} /></div>
-    {step === 1 ? <div className="request-compose"><section className="surface p-5 sm:p-7"><h2 className="section-title">{editIndex === null ? '選擇材料' : '修改清單材料'}</h2><p className="mt-1 text-sm leading-6 text-[var(--muted)]">先選分類縮小範圍，也可直接輸入名稱、規格或常用叫法。</p>
-      <div className="mt-6 space-y-5">
-        {!catalogLoaded && !error && <LoadingState label="正在載入材料…" />}<MaterialPicker materials={materials} value={selectedId} onChange={select} disabled={!catalogLoaded} />
-        <button type="button" className="btn btn-quiet px-0" onClick={() => select('other')}>找不到材料？改用自填材料</button>
-        {selectedId === 'other' && <label className="block"><span className="form-label">自填材料名稱</span><input id="custom-material" name="customMaterial" autoComplete="off" className="form-control" aria-label="自填材料名稱" aria-invalid={fieldError?.field === 'custom-material'} aria-describedby={fieldError?.field === 'custom-material' ? 'custom-error' : undefined} value={customName} onChange={(event) => setCustomName(event.target.value)} maxLength={200} />{fieldError?.field === 'custom-material' && <span id="custom-error" className="field-error" role="alert">{fieldError.message}</span>}</label>}
-        {selectedId && <><div><label className="form-label" htmlFor="request-quantity">需求數量{selected ? `（${selected.unit}）` : ''}</label><div className="quantity-stepper"><button type="button" aria-label="減少數量" disabled={submitting || quantity <= (selected?.minQty ?? 1)} onClick={() => setQuantity((value) => Math.max(selected?.minQty ?? 1, value - (selected?.stepQty ?? 1)))}>−</button><input id="request-quantity" name="quantity" autoComplete="off" inputMode="numeric" aria-invalid={fieldError?.field === 'request-quantity'} aria-describedby="quantity-help quantity-error" value={quantity || ''} onChange={(event) => setQuantity(Number(event.target.value))} /><button type="button" aria-label="增加數量" onClick={() => setQuantity((value) => value + (selected?.stepQty ?? 1))}>＋</button></div><p id="quantity-help" className="field-hint">最少 {selected?.minQty ?? 1}，每次增加 {selected?.stepQty ?? 1} {selected?.unit || '式'}。</p><p id="quantity-error" className="field-error" role={fieldError?.field === 'request-quantity' ? 'alert' : undefined}>{fieldError?.field === 'request-quantity' ? fieldError.message : ''}</p></div>
-        <label className="block"><span className="form-label">附加備註（{selected?.requiresRemarks ? '必填：確認各項材料與數量' : '選填'}）</span><textarea id="request-remarks" name="remarks" autoComplete="off" className="form-control h-24 resize-y" aria-label="附加備註" aria-required={Boolean(selected?.requiresRemarks)} aria-invalid={fieldError?.field === 'request-remarks'} aria-describedby={fieldError?.field === 'request-remarks' ? 'remarks-error' : undefined} value={remarks} onChange={(event) => setRemarks(event.target.value)} maxLength={500} placeholder={selected?.requiresRemarks ? '請填寫各項材料、規格與數量…' : '例如：規格、長度或特殊要求…'} />{fieldError?.field === 'request-remarks' && <span id="remarks-error" className="field-error" role="alert">{fieldError.message}</span>}</label>
-        <div className="flex flex-wrap gap-3"><button type="button" className="btn btn-primary flex-1" onClick={add}>{editIndex === null ? '加入待送出清單' : '儲存材料修改'}</button>{editIndex !== null && <button type="button" className="btn btn-secondary" onClick={reset}>取消修改</button>}</div></>}
-      </div></section>
-      <aside className="request-cart surface p-5 sm:p-6" aria-label="待送出清單摘要"><h2 className="section-title">待送出清單 <span className="text-base text-[var(--muted)]">({cart.length})</span></h2>{!cart.length ? <p className="mt-4 text-sm leading-7 text-[var(--muted)]">加入材料後會顯示在這裡。數量與備註可在送出前確認。</p> : <><ul className="mt-4 divide-y divide-[var(--line)]">{cart.slice(-5).map((item, index) => <li className="py-3" key={index}><p className="text-sm font-bold leading-6">{itemLabel(item)}</p><div className="cart-summary-meta"><span>需求數量</span><strong>{item.quantity.toLocaleString('zh-TW')} {item.unit}</strong></div></li>)}</ul>{cart.length > 5 && <p className="mt-2 text-xs text-[var(--muted)]">顯示最近 5 筆；確認頁可查看完整清單。</p>}<button className="btn btn-primary mt-5 w-full" disabled={editIndex !== null} onClick={() => setStep(2)}>確認清單並送出（{cart.length}）</button></>}</aside></div>
-      : <section className="surface request-confirm p-5 sm:p-7"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="section-title">確認待送出清單</h2><p className="mt-1 text-sm text-[var(--muted)]">共 {cart.length} 筆材料{editingOrderId ? `，修改 ${originalDate} 的需求單` : ''}。</p>{editingOrderId && <p className="order-reference">單號：{editingOrderId}</p>}</div></div>
-        <ul className="mt-5 divide-y divide-[var(--line)]">{cart.map((item, index) => <li className="cart-line" key={index}><div className="min-w-0"><p className="material-title font-bold leading-6">{itemLabel(item)}</p><p className="cart-confirm-quantity">{item.quantity.toLocaleString('zh-TW')} <span>{item.unit}</span></p>{item.remarks && <p className="cart-remark">{item.remarks}</p>}</div><div className="cart-line-actions"><button disabled={submitting} onClick={() => edit(index)}>修改</button><button disabled={submitting} className="text-[var(--danger)]" onClick={() => setCart((items) => items.filter((_, itemIndex) => itemIndex !== index))}>移除</button></div></li>)}</ul>
-        {canSaveDraft && <label className="mt-6 block"><span className="form-label">工班共享草稿名稱（儲存草稿時必填）</span><input id="draft-name" name="draftName" autoComplete="off" className="form-control" aria-label="草稿名稱" aria-invalid={fieldError?.field === 'draft-name'} aria-describedby={fieldError?.field === 'draft-name' ? 'draft-error' : 'draft-help'} value={draftName} disabled={submitting} onChange={(event) => setDraftName(event.target.value)} maxLength={100} placeholder="例如：高鐵 A 區水電預備…" /><span id="draft-help" className="field-hint">儲存後，同工班成員都可以接續修改。</span>{fieldError?.field === 'draft-name' && <span id="draft-error" className="field-error" role="alert">{fieldError.message}</span>}</label>}
-        <div className="request-submit-actions"><button className="btn btn-secondary" disabled={submitting} onClick={() => setStep(1)}>新增材料</button>{canSaveDraft && <button className="btn btn-secondary" disabled={submitting || !cart.length} onClick={() => void submit('編輯中')}>儲存草稿</button>}<button className="btn btn-primary" disabled={submitting || !cart.length} onClick={() => void submit('處理中')}>{submitting ? '送出中…' : editingOrderId ? '更新並重新送出' : '正式送出'}</button></div></section>}
-    {cart.length > 0 && step === 1 && <div className="mobile-cart-bar"><span className="mobile-cart-count">已加入 <strong>{cart.length}</strong> 筆</span><button className="btn btn-primary" disabled={editIndex !== null} onClick={() => setStep(2)}>確認清單並送出（{cart.length}）</button></div>}
+  const goToReview=()=>{if(textPending){setEntryMode('text');return setError('還有文字叫料未加入，請完成分析後加入，或清除不需要的文字。');}if(composePending)return setError('請先加入材料，或儲存／取消正在修改的材料。');if(!state.lines.length)return setError('請至少加入一筆材料。');setError('');setNotice('');setReview(true);requestAnimationFrame(()=>{document.getElementById('final-review-title')?.focus();document.getElementById('final-review-title')?.scrollIntoView({block:'start'});});};
+  const backToEdit=()=>{setReview(false);requestAnimationFrame(()=>{window.scrollTo({top:editPosition.current.y,behavior:'instant'});if(editPosition.current.key)document.getElementById(editPosition.current.key)?.focus({preventScroll:true});});};
+  const sharedNotes=[...new Set(state.lines.flatMap(l=>l.deliveryNote?[l.deliveryNote.batch]:[]))];
+  const merge=async()=>{setBusy(true);setError('');try{const sources=state.lines.filter(l=>selected.has(l.uiKey));if(pendingQty.size)throw Error('請先完成數量輸入再預覽合併。');const preview=await confirmation({contractVersion:2,action:'preview-merge',sources:sources.map(l=>l.content),validation:['new-draft','edit-draft'].includes(mode)?'draft-basic':'formal'});setMergePreview({sources:[...selected],content:preview.content});}catch(e){setError(e instanceof Error?e.message:'合併未完成。');}finally{setBusy(false);}};
+  const receive=async(response:Response)=>{const b=await response.json() as SubmissionResult;const disposition=submissionDisposition(b);
+    if(disposition==='review-required'){freezeAttempt({attemptRef:'attemptRef'in b?b.attemptRef:undefined,message:'寫入結果或協調狀態待核實。表單已保留，請勿重新送出。'});return null;}
+    if(disposition==='rejected'){recovery.clear();sent.current=false;throw Error(mutationMessage('code'in b?b.code:undefined));}
+    if(b.state!=='confirmed')return null;recovery.clear();setCompletionWarnings(b.warnings.length>0);return b;
+  };
+  const send=async(request:V2MutationRequest,formal:boolean)=>{
+    if(formal){const items=state.lines.map(l=>({key:refKey(l.ref),content:l.content}));const signed=await confirmation({contractVersion:2,request,items,confirm:true});request={...request,confirmations:signed.confirmations};}
+    preserveAttempt();sent.current=true;const url=admin?'/api/admin/edit-order':request.intent==='submit-draft'?'/api/orders/edit-item':'/api/orders';
+    const response=await fetch(url,{method:admin||request.intent==='submit-draft'?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});const result=await receive(response);sent.current=false;return result;
+  };
+  const save=async(formal:boolean,allowPendingText=false)=>{
+    if(disabled||submitting.current)return;if(!state.lines.length)return setError('請至少保留一筆材料。');if((textPending||composePending)&&formal)return setError('請先完成尚未加入的材料或文字叫料。');if((textPending||composePending)&&!allowPendingText){setTextSaveWarning(true);return;}
+    if(!originals.length&&account?.role==='Admin'&&!account.crews?.some(crew=>crew.company===targetCompany))return setError('請先選擇代下單工班。');
+    if(!formal&&!draftName.trim()){setDraftOpen(true);return setError('請填草稿名稱。');}
+    const invalid=state.lines.findIndex(l=>pendingQty.has(l.uiKey)||editorLineIssues(l,rules.get(contentText(l.content,'Material_ID')),formal,admin).length>0);if(invalid>=0){setShowIssues(true);focusLine(state.lines[invalid].uiKey);return setError(`第 ${invalid+1} 筆材料尚未完成，請依待處理項目修正。`);}
+    if(state.lines.some(l=>l.content.Quantity.kind!=='number'||!Number.isFinite(l.content.Quantity.value)||l.content.Quantity.value<=0||(!formal&&!Number.isSafeInteger(l.content.Quantity.value))))return setError(formal?'數量須為有效正數。':'草稿數量須為有效正整數。');
+    if(formal&&admin&&state.lines.some(l=>!l.confirmed))return setError('請逐筆核對材料。');
+    if(formal&&!review)return setError('請先檢視最後確認。');
+    submitting.current=true;setBusy(true);setError('');sent.current=false;savedDraftReceipt.current=null;
+    try{
+      const cs=editorChangeSet(state,originals,admin);const copied=initialMode==='reorder'?state.lines.filter(l=>l.copiedFrom&&l.ref.kind==='new').map(l=>({clientKey:refKey(l.ref),lineRef:l.copiedFrom!})):[];
+      let intent:V2MutationRequest['intent']=originals.length?mode==='edit-draft'?'save-draft':mode==='resubmit'?'resubmit-order':'amend-order':formal?'create-formal':'create-draft';
+      let request:V2MutationRequest={contractVersion:2,intent,...(!originals.length&&account?.role==='Admin'?{company:targetCompany}:{}),...(originals.length?{orderId:originals[0].orderId}:{}),...(['save-draft','create-draft'].includes(intent)?{draftName:draftName.trim()}:{}),changeSet:cs,...(copied.length?{reorderFrom:{orderId:group!.orderId,lines:copied}}:{})};
+      if(intent==='resubmit-order'){
+        const info=group?.first.returnInfo;if(!info)throw Error('有效退回尚未核實。');
+        const fingerprints=await confirmation({contractVersion:2,action:'content-fingerprints',items:state.lines.map(l=>({key:refKey(l.ref),content:l.content}))});
+        const resolutions=info.targets.map(t=>{
+          const d=dispositions[t.lineRef.lineId];if(!d?.reason.trim())throw Error('每個原退回目標都需要明確處置說明。');
+          const result=state.lines.find(l=>refKey(l.ref)===d.result);const originalLine=t.currentLineRef??t.lineRef;
+          const base={originalLineRef:t.lineRef,originalMcf:t.mcf,reason:d.reason.trim()};
+          if(d.result==='withdraw')return {...base,action:'withdraw' as const,result:null,expectedResultMcf:null};
+          if(!result)throw Error('請選擇退回材料的最終處置。');const mcf=fingerprints.items.find((f:{key:string;mcf:string})=>f.key===refKey(result.ref))?.mcf;if(!mcf)throw Error('內容核對未完成。');
+          const merged=originalLine.lineId!==t.lineRef.lineId||state.merges.length>0&&result.ref.kind==='new';
+          if(merged)return {...base,action:'accept-merge' as const,result:result.ref,expectedResultMcf:mcf};
+          if(result.ref.kind!=='permanent')throw Error('替換材料須明確撤回原目標，或使用合併操作。');
+          return {...base,action:'accept-current' as const,result:result.ref,expectedResultMcf:mcf};
+        });
+        request={contractVersion:2,intent,orderId:originals[0].orderId,returnRequest:{contractVersion:2,r2Version:1,intent,orderId:originals[0].orderId,expectedActiveReturnRef:group!.first.activeReturnRef as `event:${string}`,changeSet:cs,resolutions}};
+      }
+      // Frozen DRAFT_SUBMITTED preserves membership: save edits completely first,
+      // then re-read and explicitly submit that persisted material set.
+      if(mode==='edit-draft'&&formal){
+        const saved=await send(request,false);if(!saved)return;savedDraftReceipt.current=saved;
+        const fresh=await read('/api/orders');const rows=(fresh.data as OrderRow[]).filter(r=>r.orderId===saved.orderId);if(!rows.length)throw Error('草稿已保存，請重新開啟確認後送出。');
+        if(rows.length!==state.lines.length||state.lines.some(l=>{const id=l.ref.kind==='permanent'?l.ref.lineId:saved.mapping.find(m=>m.clientKey===refKey(l.ref))?.lineId;return JSON.stringify(rows.find(r=>r.lineId===id)?.content)!==JSON.stringify(l.content);}))throw Error('草稿已保存，但讀回內容已變動；請重新開啟並檢查清單。');
+        setOriginals(rows);const next=editableRows(rows,false,newKey);setState(next);setUndo([]);setBaseline(next);setBaselineName(draftName);setBaselineCompany(targetCompany);setInputEpoch(n=>n+1);savedDraftReceipt.current=null;
+        const submit:V2MutationRequest={contractVersion:2,intent:'submit-draft',orderId:saved.orderId};
+        const signed=await confirmation({contractVersion:2,request:submit,items:rows.map(r=>({key:r.lineId,content:r.content})),confirm:true});
+        preserveAttempt();sent.current=true;const r=await fetch('/api/orders/edit-item',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...submit,confirmations:signed.confirmations})});const result=await receive(r);sent.current=false;if(!result)return;intent='submit-draft';setComplete(result.orderId);
+      }else{
+        const result=await send(request,formal);if(!result)return;
+        if(!formal){savedDraftReceipt.current=result;const fresh=await read('/api/orders');const rows=(fresh.data as OrderRow[]).filter(r=>r.orderId===result.orderId);if(!rows.length)throw Error('草稿已保存，請重新開啟確認。');const next=editableRows(rows,false,newKey);next.lines=next.lines.map(l=>{const previous=state.lines.find(old=>old.ref.kind==='permanent'?old.ref.lineId===l.uiKey:result.mapping.some(m=>m.clientKey===refKey(old.ref)&&m.lineId===l.uiKey));return previous?{...l,textSource:previous.textSource,deliveryNote:previous.deliveryNote}:l;});setOriginals(rows);setState(next);setUndo([]);setMode('edit-draft');setBaseline(next);setBaselineName(draftName);setBaselineCompany(targetCompany);setInputEpoch(n=>n+1);savedDraftReceipt.current=null;setNotice('草稿已保存。最低量、級距及材料來源問題仍須於正式送出前修正。');return;}
+        setComplete(result.orderId);setUndo([]);if(onSaved)await onSaved(result.warnings.length?'業務已完成；附屬通知或稽核待補送。':'');
+        if(intent==='resubmit-order')router.push(window.matchMedia('(min-width: 1100px)').matches?completedOrderHref(result.orderId,returnTo,true):detailHref(result.orderId,returnTo)+'&resubmitted=1');
+        else if(intent==='amend-order'&&!admin){publishConfirmedFeedback('需求已確認更新。');router.push(window.matchMedia('(min-width: 1100px)').matches?completedOrderHref(result.orderId,returnTo):detailHref(result.orderId,returnTo));}
+      }
+    }catch(e){if(savedDraftReceipt.current)freezeAttempt({attemptRef:savedDraftReceipt.current.attemptRef,message:'草稿已確認保存，但編輯器未能安全讀回材料與映射。請查詢原作業或重新開啟已保存草稿，勿重新建立。'});else if(sent.current)freezeAttempt({message:'未收到可核實的作業回應。表單已保留，請交由管理者核實，勿重新送出。'});else setError(e instanceof Error?e.message:'未套用，請檢查資料。');}finally{submitting.current=false;setBusy(false);}
+  };
+  if(recovery.record||recovery.invalid)return <OrderAttemptRecovery recovery={recovery}/>;
+  if(complete)return <section className="surface request-complete" role="status"><h2 className="section-title">{admin?'需求已確認保存':'需求已送出'}</h2><p className="order-reference">單號：{complete}</p>{completionWarnings&&<p className="comparison-note">資料已確認保存；附屬通知或安全稽核仍待補送，請勿重新提交需求。</p>}<div className="request-complete-actions"><Link className="btn btn-primary" href={detailHref(complete,returnTo)}>查看需求</Link><Link className="btn btn-secondary" href="/request">再建立一張需求</Link></div></section>;
+  return <div className={`request-flow v2-editor${admin?'':' crew-request-workflow'}`} aria-busy={busy}>
+    {account?.role==='Admin'&&(!group||initialMode==='reorder')&&<section className="surface admin-company-picker"><label><span className="form-label">代下單工班</span><select className="form-control" aria-label="代下單工班" value={targetCompany} disabled={disabled||originals.length>0} onChange={e=>{setTargetCompany(e.target.value);setNotice('');setError('');}}><option value="">請選擇工班</option>{account.crews?.map(crew=><option key={crew.company} value={crew.company}>{crew.company}{crew.region?` · ${crew.region}`:''}</option>)}</select></label><p className="field-hint">需求將歸入指定工班，申請人記錄您的暱稱。{originals.length>0?'已保存的需求維持原工班。':''}</p></section>}
+    <ol className="request-steps" aria-label="建立需求步驟"><li aria-current={!review?'step':undefined}><span>1</span>選擇材料</li><li aria-current={review?'step':undefined}><span>2</span>確認並送出</li></ol>
+    <div hidden={!admin&&!group} className="editor-heading"><div><h2 className="section-title">{admin?'管理員材料編輯':mode==='resubmit'?'修改並重新送出':mode==='edit-draft'?'編輯工班草稿':mode==='edit-pending'?'修改待審需求':mode==='reorder'?'再訂一次':mode==='new-draft'?'建立工班草稿':'建立材料需求'}</h2>{(group||originals.length>0)&&<p className="order-reference">{(originals[0]??group!.first).orderDate} · {(originals[0]??group!.first).reqCompany} · {originals[0]?.orderId??group?.orderId}</p>}</div><span>{state.lines.length} 筆材料</span></div>
+    {readOnly&&<p className="feedback-error" role="alert">此需求不可編輯，請返回詳情核實。</p>}
+    {mode==='resubmit'&&group?.first.returnInfo&&<section className="return-callout" aria-label="本次退回原因"><h3 className="section-title">退回待修改</h3><p>{group.first.returnInfo.reason}</p><div className="flex flex-wrap gap-3">{group.first.returnInfo.targets.map(t=><button className="data-link" key={t.lineRef.lineId} onClick={()=>{const key=t.currentLineRef?.lineId??t.lineRef.lineId;const line=state.lines.find(l=>l.ref.kind==='permanent'&&l.ref.lineId===key);if(line)focusLine(line.uiKey);else document.querySelector('.r2-disposition')?.scrollIntoView({block:'center'});}}>{t.name||'查看退回目標'}：{t.reason??'依共用原因處理'}</button>)}</div></section>}
+    {error&&<p role="alert" className="feedback-error">{error}</p>}{notice&&<p role="status" className="feedback-success">{notice}</p>}
+    {uncertain&&<section className="feedback-error" role="alert"><h3 className="font-bold">結果待核實，表單已保留</h3><p>{uncertain.message}</p>{uncertain.attemptRef&&<><p className="order-reference">作業：{uncertain.attemptRef}</p><button type="button" className="btn btn-secondary" disabled={busy} onClick={async()=>{setBusy(true);try{const b=await read(`/api/orders/operations?attemptRef=${encodeURIComponent(uncertain.attemptRef!)}`);if(submissionDisposition(b)==='confirmed'){recovery.clear();setComplete(b.orderId);if(onSaved)await onSaved('核實後已確認完成。');}else setError('原作業仍待核實，請勿重新送出。');}catch{setError('目前無法取得可信結果，請交由管理者核實。');}finally{setBusy(false);}}}>查詢原作業結果</button></>}</section>}
+    {mode==='reorder'&&<p className="comparison-note">這是依據 {group?.orderId} 建立的新需求。原數量與備註已帶入，請重新核對施工位置、材料及單位；原單不會改變。</p>}
+    {admin&&<div hidden={review}>
+      <section hidden={!entryOpen&&state.lines.length>0} className="surface order-entry-panel" aria-label="加入材料">
+        <div className="entry-tabs"><button type="button" className={entryMode==='text'?'btn btn-primary':'btn btn-quiet'} aria-pressed={entryMode==='text'} onClick={()=>setEntryMode('text')}>貼上文字</button><button type="button" className={entryMode==='search'?'btn btn-primary':'btn btn-quiet'} aria-pressed={entryMode==='search'} onClick={()=>setEntryMode('search')}>搜尋選料</button></div>
+        <fieldset hidden={entryMode!=='text'} disabled={disabled} className="text-import-wrapper"><TextOrderImport materials={materials} remaining={100-state.lines.length} onPendingChange={setTextPending} onAdd={importText}/></fieldset>
+        <div hidden={entryMode!=='search'}><MaterialPicker materials={materials} value={picker} disabled={disabled} onChange={id=>{setPicker(id);const material=rules.get(id);if(material)add(material);}}/><button type="button" className="btn btn-quiet mt-3" disabled={disabled} onClick={()=>add()}>找不到材料？新增自填材料</button></div>
+      </section>
+      <section hidden={state.lines.length===0} className="surface material-workspace" aria-label="需求材料清單"><div className="material-workspace-heading"><h3 className="section-title">材料（{state.lines.length}）</h3><span className="field-hint">已核對 {state.lines.filter(l=>l.confirmed).length}／{state.lines.length}</span></div>
+      <details className="list-tools"><summary>清單工具</summary>
+      {state.lines.length>10&&<details className="material-search-tools"><summary>搜尋與問題篩選</summary><section className="material-list-controls" aria-label="材料清單工具"><label><span className="form-label">搜尋目前材料清單</span><input className="form-control" type="search" value={search} placeholder="材料、備註或原序號" onChange={e=>setSearch(e.target.value)}/></label><label className="check-target"><input type="checkbox" checked={problemsOnly} onChange={e=>setProblemsOnly(e.target.checked)}/>只看待處理（{problemCount}）</label></section></details>}
+      {duplicateCount>0&&<p className="field-hint">{duplicateCount} 筆材料可能重複，可保留分筆。</p>}
+      <div className="v2-editor-toolbar"><button className="btn btn-quiet" aria-pressed={mergeMode} disabled={disabled||state.lines.length<2} onClick={()=>{setMergeMode(v=>!v);setSelected(new Set());}}>{mergeMode?'結束選取':'選取材料合併'}</button>{mergeMode&&<button className="btn btn-secondary" disabled={disabled||selected.size<2} onClick={()=>void merge()}>合併勾選材料</button>}{undo.length>0&&<button className="btn btn-secondary" disabled={disabled} onClick={()=>{setState(undo.at(-1)!);setUndo(u=>u.slice(0,-1));setSelected(new Set());setPendingQty(new Set());setInputEpoch(n=>n+1);setError('');setNotice('已撤銷上一步。');}}>撤銷上一步</button>}</div></details>
+      {sharedNotes.map(batch=>{const members=state.lines.filter(l=>l.deliveryNote?.batch===batch),text=members[0].deliveryNote!.text,targets=new Set(members.filter(l=>l.deliveryNote?.applied).map(l=>l.uiKey));return <details className="shared-delivery-note" key={batch}><summary>交貨備註 · 套用 {targets.size} 筆</summary><label><span className="form-label">共用交貨備註</span><textarea className="form-control" rows={3} maxLength={500} value={text} disabled={disabled} onChange={e=>change(setDeliveryNote(state,batch,e.target.value,targets))}/></label><fieldset><legend>適用材料</legend>{state.lines.map(l=><label className="check-target" key={l.uiKey}><input type="checkbox" disabled={disabled||Boolean(l.deliveryNote&&l.deliveryNote.batch!==batch)} checked={targets.has(l.uiKey)} onChange={e=>{const next=new Set(targets);if(e.target.checked)next.add(l.uiKey);else next.delete(l.uiKey);change(setDeliveryNote(state,batch,text,next));}}/>{state.lines.indexOf(l)+1}. {contentText(l.content,'Item_Name')}</label>)}</fieldset></details>;})}
+      {(showIssues||problemsOnly)&&problemCount>0&&<section className="issue-summary" aria-label="待處理材料摘要"><h3 className="section-title">有 {problemCount} 筆材料需要處理</h3><ul>{state.lines.map((line,index)=>(issues[index].length>0||pendingQty.has(line.uiKey))&&<li key={line.uiKey}><button className="data-link" onClick={()=>focusLine(line.uiKey)}>第 {index+1} 筆：{contentText(line.content,'Item_Name')} — {pendingQty.has(line.uiKey)?'請完成數量輸入':issues[index][0]?.message}</button></li>)}</ul></section>}
+      <div className="editor-lines">{state.lines.map((line,index)=>{const matches=(!search||[String(index+1),contentText(line.content,'Item_Name'),contentText(line.content,'Remarks')].some(text=>text.toLowerCase().includes(search.toLowerCase())))&&(!problemsOnly||issues[index].length>0||pendingQty.has(line.uiKey));return <div key={line.uiKey+':'+inputEpoch} hidden={!matches}><OrderMaterialLine line={line} index={index} rule={rules.get(contentText(line.content,'Material_ID'))} materials={materials} selected={selected.has(line.uiKey)} mergeMode={mergeMode} admin={admin} quantityStepper={admin} showIssues={showIssues||problemsOnly} disabled={disabled} derived={state.merges.some(m=>m.resultClientKey===line.uiKey)} issues={issues[index]} onEdit={editLine} onCheck={checkLine} onSelect={selectLine} onRemove={removeLine} onResolve={resolveLine} onPending={pendingLine}/></div>;})}</div><button type="button" className="btn btn-secondary mt-3" disabled={disabled} onClick={()=>{setEntryOpen(true);requestAnimationFrame(()=>document.querySelector('.order-entry-panel')?.scrollIntoView({block:'start'}));}}>新增材料</button></section>
+    </div>}
+    {review&&admin&&<section className="surface final-review" aria-label="正式最後確認"><h3 className="section-title" tabIndex={-1} id="final-review-title">確認需求</h3><p>{admin?'管理員修改':mode==='resubmit'?'退回後重新送出':originals.length?'既有需求送出':'建立全新需求'} · {state.lines.length} 筆材料</p><p>工班：{originals[0]?.reqCompany||group?.first.reqCompany||targetCompany||account?.company}</p><ol>{state.lines.map((line,index)=><li key={line.uiKey}><div className="detail-material-title"><strong>{index+1}. {contentText(line.content,'Item_Name')}</strong><span>{line.content.Quantity.kind==='number'?line.content.Quantity.value:''} {contentText(line.content,'Unit')}</span></div><p>{contentText(line.content,'Vendor')}</p>{contentText(line.content,'Remarks')&&<p className="material-remarks">備註：{contentText(line.content,'Remarks')}</p>}<button className="data-link" disabled={disabled} onClick={()=>focusLine(line.uiKey)}>返回修改第 {index+1} 筆</button></li>)}</ol></section>}
+    {!admin&&<>
+      <div hidden={review} className="crew-compose">
+        <div className="crew-compose-main"><section className="surface crew-input-panel"><div className="crew-entry-tabs" aria-label="材料加入方式"><button type="button" className="btn btn-quiet" aria-pressed={entryMode==='search'} disabled={disabled||Boolean(editingKey)} onClick={()=>setEntryMode('search')}>搜尋選料</button><button type="button" className="btn btn-quiet" aria-pressed={entryMode==='text'} disabled={disabled||Boolean(editingKey)} onClick={()=>setEntryMode('text')}>貼上叫料文字</button></div>
+        <div hidden={entryMode!=='search'}><MaterialEntryForm key={(editingKey??'new')+':'+entryEpoch} materials={materials} editing={state.lines.find(l=>l.uiKey===editingKey)} disabled={disabled} onPendingChange={setComposePending} onCommit={commitMaterial} onCancel={()=>{setEditingKey(null);setComposePending(false);setReview(true);setError('');}}/></div>
+        <fieldset hidden={entryMode!=='text'} disabled={disabled} className="text-import-wrapper"><TextOrderImport materials={materials} remaining={100-state.lines.length} onPendingChange={setTextPending} onAdd={importText}/></fieldset></section></div>
+        <aside className="surface crew-cart" aria-label="待送出清單摘要"><div className="crew-cart-heading"><h2 className="section-title">待送出清單</h2><span className="field-hint">{state.lines.length} 筆</span></div>{state.lines.length?<><ul>{state.lines.slice(-5).map(l=><li key={l.uiKey}><strong>{contentText(l.content,'Item_Name')}</strong><div className="crew-cart-quantity"><span className="field-hint">需求數量</span><span>{l.content.Quantity.kind==='number'?l.content.Quantity.value:''} {contentText(l.content,'Unit')}</span></div></li>)}</ul>{state.lines.length>5&&<p className="field-hint">顯示最近 5 筆；確認頁可查看完整清單。</p>}</>:<p className="empty-state">加入的材料會顯示在這裡。</p>}<button type="button" className="btn btn-primary" disabled={disabled||!state.lines.length||Boolean(editingKey)} onClick={goToReview}>確認清單並送出（{state.lines.length}）</button></aside>
+      </div>
+      {review&&<section className="surface crew-final-review final-review" aria-label="確認並送出"><h2 id="final-review-title" tabIndex={-1} className="section-title">確認待送出清單</h2><p className="field-hint">{originals[0]?.reqCompany||group?.first.reqCompany||targetCompany||account?.company} · 共 {state.lines.length} 筆材料</p><ol>{state.lines.map((l,index)=><li key={l.uiKey}><div className="crew-review-material"><strong>{index+1}. {contentText(l.content,'Item_Name')}</strong><span>{l.content.Quantity.kind==='number'?l.content.Quantity.value:''} {contentText(l.content,'Unit')}</span></div>{contentText(l.content,'Remarks')&&<p className="material-remarks">{contentText(l.content,'Remarks')}</p>}{showIssues&&issues[index].length>0&&<p className="field-error">{issues[index][0].message}</p>}<div className="crew-review-row-actions"><button type="button" className="btn btn-quiet" disabled={disabled||state.merges.some(m=>m.resultClientKey===l.uiKey)} aria-label={`修改第 ${index+1} 筆材料`} onClick={()=>focusLine(l.uiKey)}>修改</button><button type="button" className="btn btn-danger" disabled={disabled||state.merges.some(m=>m.resultClientKey===l.uiKey)} aria-label={`移除第 ${index+1} 筆材料`} onClick={()=>removeLine(l.uiKey)}>移除</button></div></li>)}</ol>{!state.lines.length&&<p className="empty-state">目前沒有材料，請先新增材料。</p>}
+      {draftOpen&&!['edit-pending','resubmit'].includes(mode)&&<label className="crew-draft-name"><span className="form-label">草稿名稱</span><input className="form-control" aria-label="草稿名稱" maxLength={100} disabled={disabled} value={draftName} onChange={e=>setDraftName(e.target.value)}/></label>}
+      <div className="crew-review-actions"><button type="button" className="btn btn-secondary" disabled={disabled} onClick={()=>{setReview(false);setEditingKey(null);setError('');}}>新增材料</button><div>{!['edit-pending','resubmit'].includes(mode)&&<button type="button" className="btn btn-secondary" disabled={disabled||!state.lines.length} onClick={()=>{if(!draftOpen){setDraftOpen(true);return;}void save(false);}}>存草稿</button>}<button type="button" className="btn btn-primary" disabled={disabled||!state.lines.length} onClick={()=>void save(true)}>{busy?'送出中…':mode==='resubmit'?'確認重新送出':'確認送出'}</button></div></div>
+      </section>}
+    </>}
+    {mode==='resubmit'&&group?.first.returnInfo&&<section className="surface p-5"><h3 className="section-title">原退回目標與處置</h3><p className="order-return-note">{group.first.returnInfo.reason}</p><p className="field-hint">修改、刪除或合併不會自行關閉退回。重新送出時將逐筆核實。</p>{group.first.returnInfo.targets.map(t=><fieldset key={t.lineRef.lineId} className="r2-disposition"><legend>{t.name||'原退回材料'}</legend><p>{t.reason??group.first.returnInfo!.reason}</p><p className="order-reference">{t.lineRef.lineId}</p><label><span className="form-label">處置結果</span><select className="form-control" disabled={disabled||(admin&&review)} value={dispositions[t.lineRef.lineId]?.result??''} onChange={e=>setDispositions(d=>({...d,[t.lineRef.lineId]:{reason:d[t.lineRef.lineId]?.reason??'',result:e.target.value}}))}><option value="">請選擇最終材料或撤回</option><option value="withdraw">撤回原材料</option>{state.lines.map(l=><option key={l.uiKey} value={refKey(l.ref)}>{contentText(l.content,'Item_Name')} · {l.uiKey.slice(0,18)}</option>)}</select></label><label><span className="form-label">處置說明（必填）</span><textarea className="form-control" rows={2} maxLength={500} disabled={disabled||(admin&&review)} value={dispositions[t.lineRef.lineId]?.reason??''} onChange={e=>setDispositions(d=>({...d,[t.lineRef.lineId]:{result:d[t.lineRef.lineId]?.result??'',reason:e.target.value}}))}/></label></fieldset>)}</section>}
+    {admin&&<>    <div hidden={state.lines.length===0} className="editor-actions v2-submit-actions">{!review&&!admin&&!['edit-pending','resubmit'].includes(mode)&&<button className="btn btn-secondary" disabled={disabled} onClick={()=>{if(!originals.length)setMode('new-draft');void save(false);}}>存草稿</button>}{review?<><button className="btn btn-secondary" disabled={disabled} onClick={backToEdit}>返回修改</button><button className="btn btn-primary" disabled={disabled} onClick={()=>void save(true)}>{busy?'核實並保存中…':admin?'確認儲存修改':mode==='resubmit'?'確認重新送出':'確認送出'}</button></>:<button className="btn btn-primary" disabled={disabled||!state.lines.length} onClick={()=>{setShowIssues(true);const invalid=state.lines.findIndex((line,i)=>issues[i].length>0||pendingQty.has(line.uiKey));if(textPending){setError('叫料文字已修改，請先整理清單或還原原文。');return;}if(invalid>=0){focusLine(state.lines[invalid].uiKey);setError('請先完成待處理材料，再進入最後確認。');return;}editPosition.current={y:window.scrollY,key:document.activeElement?.closest('[id^="edit-line-"]')?.id??''};setError('');setReview(true);requestAnimationFrame(()=>{document.getElementById('final-review-title')?.focus();document.getElementById('final-review-title')?.scrollIntoView({block:'start'});});}}>下一步：確認需求</button>}<button className="btn btn-quiet" disabled={busy} onClick={()=>requestLeave(()=>router.push(returnTo))}>返回原位置</button></div>
+</>}
+    <dialog ref={previewDialog} className="action-dialog" aria-labelledby="merge-title" onCancel={()=>setMergePreview(null)}><h3 className="section-title" id="merge-title">合併材料預覽</h3>{mergePreview&&<><h4 className="mt-4 font-bold">來源材料</h4><ul>{state.lines.filter(l=>mergePreview.sources.includes(l.uiKey)).map(l=><li key={l.uiKey}>{contentText(l.content,'Item_Name')}：{l.content.Quantity.kind==='number'?l.content.Quantity.value:''} {contentText(l.content,'Unit')}<p className="material-remarks">{contentText(l.content,'Remarks')}</p></li>)}</ul><h4 className="mt-4 font-bold">合併結果</h4><p>{contentText(mergePreview.content,'Item_Name')}：{mergePreview.content.Quantity.kind==='number'?mergePreview.content.Quantity.value:''} {contentText(mergePreview.content,'Unit')}</p><p className="field-hint">來源材料在儲存後退役，結果取得新材料識別，必須重新確認。未儲存前可撤銷。</p><div className="dialog-actions"><button className="btn btn-secondary" onClick={()=>{previewDialog.current?.close();setMergePreview(null);}}>保留分筆</button><button className="btn btn-primary" onClick={()=>{change(mergeEditorLines(state,mergePreview.sources,newKey(),mergePreview.content));setSelected(new Set());previewDialog.current?.close();setMergePreview(null);}}>確認合併</button></div></>}</dialog>
+    <dialog ref={textDialog} className="action-dialog" aria-labelledby="text-save-title" onCancel={()=>setTextSaveWarning(false)}><h3 className="section-title" id="text-save-title">尚未加入的內容不會儲存</h3><p>尚未加入的選料或文字不包含在草稿。只儲存已加入的材料清單，原文字保留在目前頁面；離頁或重新整理可能遺失。</p><div className="dialog-actions"><button className="btn btn-secondary" onClick={()=>{textDialog.current?.close();setTextSaveWarning(false);}}>返回處理文字</button><button className="btn btn-primary" onClick={()=>{textDialog.current?.close();setTextSaveWarning(false);void save(false,true);}}>僅儲存材料清單</button></div></dialog>
+    {group&&<OrderHistoryPanel group={group}/>}
   </div>;
 }

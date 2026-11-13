@@ -1,7 +1,7 @@
 import { materialColumns } from '@/lib/sheet-table';
 import { toMaterialRules, type MaterialRule } from '@/lib/order-domain';
 
-export type CatalogMaterial = MaterialRule & { tags: string[]; category: string; subcategory: string; aliases: string[]; orderHint: string; displayName: string };
+export type CatalogMaterial = MaterialRule & { tags: string[]; category: string; subcategory: string; aliases: string[]; orderHint: string; displayName: string; packUnit?: string; unitsPerPack?: number };
 const splitWords = (value: unknown) => String(value ?? '').split(/[,，\n]/).map((word) => word.trim()).filter(Boolean);
 
 // Explicitly whitelist public fields: Price stays on the server.
@@ -12,7 +12,9 @@ export function publicMaterials(rows: unknown[][]): CatalogMaterial[] {
   return rows.slice(1).flatMap((row) => {
     const rule = rules.get(String(row[c.id] ?? ''));
     if (!rule) return [];
-    return [{ ...rule, tags: splitWords(row[c.tags]), category: read(row, c.category) || '其他材料', subcategory: read(row, c.subcategory), aliases: splitWords(read(row, c.aliases)), orderHint: read(row, c.hint), displayName: read(row, c.display) || rule.name }];
+    const packUnit = read(row, c.packUnit), unitsPerPack = Number(read(row, c.unitsPerPack));
+    const packaging = packUnit && Number.isFinite(unitsPerPack) && unitsPerPack > 0 ? { packUnit, unitsPerPack } : {};
+    return [{ ...rule, ...packaging, tags: splitWords(row[c.tags]), category: read(row, c.category) || '其他材料', subcategory: read(row, c.subcategory), aliases: splitWords(read(row, c.aliases)), orderHint: read(row, c.hint), displayName: read(row, c.display) || rule.name }];
   });
 }
 

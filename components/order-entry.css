@@ -1,0 +1,35 @@
+/* Order entry: one continuous list, one place to check each material. */
+.order-entry-panel { padding:1.25rem; margin-block:1rem; }
+.entry-tabs { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; }
+.text-import-wrapper { min-width:0; border:0; padding:0; }
+.order-entry-panel .text-order-import { border:0; padding:0; margin:0; }
+.order-entry-panel .text-order-import summary, .list-tools > summary, .shared-delivery-note > summary { min-height:44px; padding-block:.6rem; color:var(--delta-blue-strong); cursor:pointer; }
+.order-entry-panel .text-order-body { padding:0; }
+.order-entry-panel textarea { width:100%; min-height:9rem; }
+.list-tools { margin-top:.5rem; }
+.shared-delivery-note { padding-block:.5rem; border-bottom:1px solid var(--line); }
+.shared-delivery-note fieldset { border:0; padding:0; margin-top:.75rem; }
+.shared-delivery-note .check-target { justify-content:flex-start; overflow-wrap:anywhere; }
+.v2-material-line { display:block; padding-block:1rem; }
+.material-main { display:grid; grid-template-columns:minmax(0,1fr) 160px 105px; align-items:start; gap:.5rem 1rem; }
+.material-main > * { min-width:0; }
+.v2-material-line .material-line-heading { grid-column:1; }
+.v2-material-line .material-line-quantity { grid-column:2; }
+.v2-material-line .material-confirmation { grid-column:3; min-height:48px; margin-top:1.6rem; font-size:.875rem; }
+.material-secondary { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:start; gap:.5rem; margin-top:.25rem; }
+.material-secondary .material-notes { flex:1; min-width:0; }
+.material-secondary .material-line-more { margin:0; }
+.material-secondary .material-line-more[open] { flex-basis:100%; }
+.material-secondary .material-line-more > summary { font-size:.875rem; }
+.pack-quantity { display:block; max-width:320px; margin-block:.75rem; }
+.text-source-resolution { padding-block:.75rem; }
+.text-source-resolution .text-order-original { margin-bottom:.5rem; }
+.v2-material-line .material-notes .notes-summary { max-width:70ch; }
+@media(max-width:767px) {
+  .order-entry-panel { padding:1rem; }
+  .material-main { grid-template-columns:minmax(0,1fr) 105px; }
+  .v2-material-line .material-line-heading { grid-column:1/-1; }
+  .v2-material-line .material-line-quantity { grid-column:1; }
+  .v2-material-line .material-confirmation { grid-column:2; }
+  .v2-material-line input[type=checkbox] { width:1.2rem; }
+}

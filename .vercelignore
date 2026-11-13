@@ -1,0 +1,14 @@
+# Local-only files must also stay out of Vercel CLI uploads.
+.git/
+.vercel/
+待刪除/
+.tools/
+.vs/
+.codex-attachments/
+.impeccable/
+.env*
+node_modules/
+.next/
+*.tsbuildinfo
+docs/
+tests/

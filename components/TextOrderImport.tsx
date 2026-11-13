@@ -1,100 +1,34 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import SearchSelect from '@/components/SearchSelect';
-import { useUnsavedChanges } from '@/components/NavigationGuard';
-import { normalizeSearchText, type CatalogMaterial } from '@/lib/material-catalog';
-import { equivalentUnit, parseTextOrder, suggestedTextQuantity, textLineError, type TextOrderLine } from '@/lib/text-order';
-
-export type ImportedItem = { materialName: string; quantity: number; unit: string; vendor: string; remarks: string; originalId: string };
-type ReviewLine = TextOrderLine & { materialId: string; amount: string; remarks: string; included: boolean; confirmed: boolean; customName: string; customUnit: string; applyNotes: boolean };
-
-export default function TextOrderImport({ materials, remaining, onAdd, onPendingChange }: { materials: CatalogMaterial[]; remaining: number; onAdd: (items: ImportedItem[]) => void; onPendingChange: (pending: boolean) => void }) {
-  const [text, setText] = useState('');
-  const root = useRef<HTMLDetailsElement>(null);
-  const focusLine = (index: number, message: string) => {
-    setError(`第 ${index + 1} 筆：${message}`);
-    requestAnimationFrame(() => {
-      const row = root.current?.querySelector<HTMLElement>(`[data-text-line="${index}"]`);
-      row?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-      row?.focus({ preventScroll: true });
-    });
-  };
-  const [lines, setLines] = useState<ReviewLine[]>([]);
-  const [notes, setNotes] = useState('');
-  const [error, setError] = useState('');
-  const [reviewing, setReviewing] = useState(false);
-  useUnsavedChanges(Boolean(text.trim()));
-  useEffect(() => { onPendingChange(Boolean(text.trim())); }, [text, onPendingChange]);
-  const analyze = () => {
-    try {
-      const parsed = parseTextOrder(text, materials);
-      if (!parsed.lines.length) throw new Error('沒有可分析的材料行，請每行填寫一種材料及數量。');
-      setLines(parsed.lines.map(line => {
-        // Only exact names/aliases may be preselected; suggestions always need user selection.
-        const matches = materials.filter(material => [material.name, material.displayName, ...(material.aliases || [])].some(name => normalizeSearchText(name || '') === normalizeSearchText(line.name)));
-        const candidate = matches.length === 1 ? matches[0] : undefined;
-        return { ...line, materialId: candidate?.id || '', amount: candidate ? suggestedTextQuantity(candidate, line) : '', remarks: '', included: true, confirmed: false, customName: line.name, customUnit: line.unit || '式', applyNotes: false };
-      }));
-      setNotes(parsed.notes); setReviewing(true); setError('');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '無法分析文字。'); }
-  };
-  const update = (index: number, patch: Partial<ReviewLine>) => { setError(''); setLines(current => current.map((line, i) => i === index ? { ...line, ...patch, confirmed: false } : line)); };
-  const remarksFor = (line: ReviewLine) => [line.applyNotes ? notes.trim() : '', line.remarks.trim()].filter(Boolean).join('\n');
-  const materialFor = (line: ReviewLine): CatalogMaterial | undefined => line.materialId === 'other' ? { id: 'other', name: line.customName.trim(), displayName: line.customName.trim(), unit: line.customUnit.trim(), vendor: '', minQty: 1, stepQty: 1, tags: [], aliases: [], category: '', subcategory: '', orderHint: '' } : materials.find(entry => entry.id === line.materialId);
-  const issueFor = (line: ReviewLine) => {
-    if (line.materialId === 'other' && (!line.customName.trim() || line.customName.trim().length > 200 || !line.customUnit.trim() || line.customUnit.trim().length > 30)) return '請填寫材料名稱（最多 200 字）及單位（最多 30 字）。';
-    return textLineError(materialFor(line), line.amount.trim() ? Number(line.amount) : null, remarksFor(line));
-  };
-  const included = lines.filter(line => line.included);
-  const confirmedCount = included.filter(line => line.confirmed && !issueFor(line)).length;
-  const add = () => {
-    if (!included.length) return setError('請至少保留一筆材料。');
-    if (included.length > remaining) return setError(`待送出清單還能加入 ${remaining} 筆，請減少本次加入的材料。`);
-    if (notes.trim() && !included.some(line => line.applyNotes)) {
-      setError('請選擇交貨備註要套用的材料，或清除不需要的交貨備註。');
-      const target = root.current?.querySelector<HTMLElement>('#text-order-notes'); target?.scrollIntoView({ block: 'center' }); target?.focus(); return;
-    }
-    for (const line of included) {
-      const issue = issueFor(line);
-      if (issue || !line.confirmed) return focusLine(lines.indexOf(line), issue || '請確認這筆材料、單位、數量及備註，再勾選已確認。');
-    }
-    onAdd(included.map(line => {
-      const material = materialFor(line)!;
-      return { materialName: material.name, originalId: material.id, vendor: material.vendor, unit: material.unit, quantity: Number(line.amount), remarks: remarksFor(line) };
-    }));
-    setText(''); setLines([]); setNotes(''); setReviewing(false); setError('');
-  };
-  return <details ref={root} className="text-order-import"><summary>文字叫料：貼上清單批次填入</summary><div className="text-order-body">
-    <p className="field-hint">每行一項材料。系統協助整理，請逐筆確認規格、顏色、單位與數量；確認後才加入待送出清單。</p>
-    <label className="block mt-4"><span className="form-label">叫料文字</span><textarea className="form-control text-order-source" maxLength={12000} value={text} onChange={event => { setText(event.target.value); setReviewing(false); }} placeholder={'例如：\n8mm2 -1C 電線/白色 (100M/丸)\n2mm2 -2C 電纜/黑色 (100M/丸)\nLED燈泡(E40) 75W 白光\n防水型ELCB 2P 15AT 30mA 0.1S*50只\n【交貨備註】'} /></label>
-    <button type="button" className="btn btn-secondary mt-3" disabled={!text.trim() || !materials.length} onClick={analyze}>分析叫料文字</button>
-    {text && <button type="button" className="btn btn-quiet mt-3" onClick={() => { setText(''); setLines([]); setNotes(''); setReviewing(false); setError(''); }}>清除叫料文字</button>}
-    {reviewing && <div className="text-order-review"><h3 className="section-title">確認文字叫料清單</h3><p className="field-hint">辨識 {lines.length} 筆，保留 {included.length} 筆。找不到的材料可直接自填；不需要的項目可略過。每筆只需確認一次。</p>
-      <ol>{lines.map((line, index) => {
-        const material = materialFor(line);
-        const issue = issueFor(line);
-        const options = materials.map(entry => ({ value: entry.id, label: entry.displayName || entry.name, keywords: [entry.name, ...(entry.aliases || [])].join(' '), detail: `單位：${entry.unit}` }));
-        const sorted = [...options].sort((a, b) => Number(line.candidates.includes(b.value)) - Number(line.candidates.includes(a.value)));
-        return <li key={index} data-text-line={index} tabIndex={-1} className="text-order-line"><div className="text-order-line-heading"><strong>第 {index + 1} 筆</strong></div><p className="text-order-original">原文：{line.source}</p>{line.calculation && <p className="field-hint">數量解析：{line.calculation}</p>}
-          {line.included && <><SearchSelect label={`第 ${index + 1} 筆對應材料`} options={sorted} value={line.materialId === 'other' ? '' : line.materialId} disabled={line.materialId === 'other'} emptyLabel="請選擇對應材料" onChange={id => {
-            const selected = materials.find(entry => entry.id === id);
-            update(index, { materialId: id, amount: selected ? suggestedTextQuantity(selected, line) : '' });
-          }} />
-          <button type="button" className="btn btn-quiet" onClick={() => update(index, { materialId: line.materialId === 'other' ? '' : 'other', amount: line.quantity !== null ? String(line.quantity) : '1' })}>{line.materialId === 'other' ? '改從材料庫選擇' : '找不到材料？自行填寫'}</button>
-          {line.materialId === 'other' && <div className="text-custom-fields"><label><span className="form-label">第 {index + 1} 筆自填材料名稱</span><input className="form-control" maxLength={200} value={line.customName} onChange={event => update(index, { customName: event.target.value })} /></label><label><span className="form-label">第 {index + 1} 筆自填單位</span><input className="form-control" maxLength={30} value={line.customUnit} onChange={event => update(index, { customUnit: event.target.value })} /></label></div>}
-          <label className="block mt-3"><span className="form-label">第 {index + 1} 筆需求數量{material ? `（${material.unit}）` : ''}</span><input className="form-control text-order-quantity" inputMode="numeric" aria-describedby={`text-quantity-help-${index}`} aria-invalid={Boolean(issue)} value={line.amount} onChange={event => update(index, { amount: event.target.value })} /></label>
-          {material && <p id={`text-quantity-help-${index}`} className="field-hint">最低數量 {material.minQty.toLocaleString('zh-TW')} {material.unit}；數量須為 {material.stepQty.toLocaleString('zh-TW')} 的倍數。</p>}
-          {material && line.materialId !== 'other' && line.unit && equivalentUnit(material.unit) !== equivalentUnit(line.unit) && <p className="field-hint">原文單位「{line.unit}」與材料單位「{material.unit}」不同，依你的設定建議：最低數量 {material.minQty} × 原文數量 {line.quantity ?? 1} = {suggestedTextQuantity(material, line)} {material.unit}。請核對後確認，可自行修改。</p>}
-          <label className="block mt-3"><span className="form-label">第 {index + 1} 筆備註{material?.requiresRemarks ? '（必填）' : '（選填）'}</span><textarea className="form-control" maxLength={500} value={line.remarks} onChange={event => update(index, { remarks: event.target.value })} /></label>
-          {issue && <p className="field-hint text-[var(--warning)]">{issue}</p>}
-          <div className="text-line-actions"><label className="check-target"><input type="checkbox" checked={line.confirmed} onChange={event => { if (event.target.checked && issue) return focusLine(index, issue); setError(''); setLines(current => current.map((entry, i) => i === index ? { ...entry, confirmed: event.target.checked } : entry)); }} />已確認第 {index + 1} 筆材料、單位、數量及備註</label><button type="button" className="btn btn-quiet" onClick={() => update(index, { included: !line.included })}>{line.included ? `略過第 ${index + 1} 筆` : `恢復第 ${index + 1} 筆`}</button></div></>}
-          {!line.included && <div className="text-line-actions"><button type="button" className="btn btn-quiet" onClick={() => update(index, { included: !line.included })}>{line.included ? `略過第 ${index + 1} 筆` : `恢復第 ${index + 1} 筆`}</button></div>}
-        </li>;
-      })}</ol>
-      <label className="block mt-4"><span className="form-label">交貨備註（指定材料後套用）</span><textarea id="text-order-notes" className="form-control" maxLength={500} value={notes} onChange={event => { setError(''); setNotes(event.target.value);  }} /></label>
-      {notes.trim() && <fieldset className="text-note-targets"><legend className="form-label">交貨備註要填在哪些材料？</legend><div className="text-note-options">{lines.map((line, index) => line.included && <label className="check-target" key={index}><input type="checkbox" checked={line.applyNotes} onChange={event => { setError(''); setLines(current => current.map((entry, i) => i === index ? { ...entry, applyNotes: event.target.checked } : entry)); }} /><span>第 {index + 1} 筆 · {materialFor(line)?.displayName || line.name}</span></label>)}</div></fieldset>}
-      <button type="button" className="btn btn-primary mt-4" onClick={add}>加入清單（已確認 {confirmedCount}／{included.length} 筆）</button>
-    </div>}
-    {error && <p role="alert" className="feedback-error mt-3">{error}</p>}
-  </div></details>;
+import {useEffect,useId,useRef,useState} from 'react';
+import SearchSelect from './SearchSelect';
+import OrderMaterialLine,{editorLineIssues} from './OrderMaterialLine';
+import {materialOption,type CatalogMaterial} from '@/lib/material-catalog';
+import {parseTextOrder,exactTextMaterial,textQuantity,type TextOrderLine} from '@/lib/text-order';
+import {contentText,textCell,setDeliveryNote,type EditorLine} from '@/lib/order-form-state';
+import type {SevenContent} from '@/lib/order-change-set';
+export type ImportedItem={content:SevenContent;parsed:TextOrderLine;deliveryNote?:EditorLine['deliveryNote']};
+export default function TextOrderImport({materials,remaining,onAdd,onPendingChange}:{materials:CatalogMaterial[];remaining:number;onAdd:(items:ImportedItem[])=>boolean;onPendingChange:(pending:boolean)=>void}){
+ const scope=useId().replace(/[^a-z0-9]/gi,''),root=useRef<HTMLDivElement>(null);
+ const [text,setText]=useState(''),[original,setOriginal]=useState(''),[lines,setLines]=useState<EditorLine[]>([]),[skipped,setSkipped]=useState<Set<string>>(new Set()),[pending,setPending]=useState<Set<string>>(new Set()),[error,setError]=useState(''),[showIssues,setShowIssues]=useState(false),[epoch,setEpoch]=useState(0);
+ const hasPending=Boolean(text.trim())||lines.length>0;
+ useEffect(()=>{onPendingChange(hasPending);return()=>onPendingChange(false);},[hasPending,onPendingChange]);
+ const included=lines.filter(l=>!skipped.has(l.uiKey)),notes=lines[0]?.deliveryNote?.text??'';
+ const analyze=()=>{try{const parsed=parseTextOrder(text,materials);if(!parsed.lines.length)throw Error('請貼上材料與數量，每行一筆。');setLines(parsed.lines.map((source,index)=>{const m=exactTextMaterial(source,materials),conversion=m?textQuantity(m,source):null,key=`${scope}_${index}`,applied=Boolean(parsed.notes)&&parsed.noteTargets.includes(index);return {uiKey:key,ref:{kind:'new',clientKey:key},confirmed:false,textSource:{batch:scope,parsed:source,resolved:Boolean(m),quantityIssue:conversion?.issue??''},...(parsed.notes?{deliveryNote:{batch:scope,text:parsed.notes,applied}}:{}),content:{Material_ID:textCell(m?.id??''),Item_Name:textCell(m?.name??source.name),Original_Item_Name:textCell(''),Quantity:{kind:'number',value:conversion?Number(conversion.amount)||0:source.quantity??0},Unit:textCell(m?.unit??source.unit),Vendor:textCell(m?.vendor??''),Remarks:textCell(applied?parsed.notes:'')}};}));setSkipped(new Set());setPending(new Set());setShowIssues(false);setEpoch(n=>n+1);setError('');}catch(e){setError(e instanceof Error?e.message:'分析失敗，原文已保留。');}};
+ const edit=(key:string,content:SevenContent,resolved=false,quantityIssue?:string)=>{setLines(before=>before.map(l=>l.uiKey===key?{...l,content,confirmed:false,textSource:l.textSource?{...l.textSource,resolved:resolved||l.textSource.resolved,...(quantityIssue!==undefined?{quantityIssue}:{})}:undefined}:l));setError('');};
+ const choose=(line:EditorLine,id:string)=>{const m=materials.find(m=>m.id===id);if(!m||!line.textSource)return;const converted=textQuantity(m,line.textSource.parsed);edit(line.uiKey,{...line.content,Material_ID:textCell(m.id),Item_Name:textCell(m.name),Unit:textCell(m.unit),Vendor:textCell(m.vendor),Quantity:{kind:'number',value:Number(converted.amount)||0}},true,converted.issue);setPending(before=>{const next=new Set(before);next.delete(line.uiKey);return next;});};
+ const add=()=>{const invalid=included.find(l=>pending.has(l.uiKey)||editorLineIssues(l,materials.find(m=>m.id===contentText(l.content,'Material_ID')),true,false).length>0);if(invalid){setShowIssues(true);setError('請修正未略過的材料或數量，再加入清單。');requestAnimationFrame(()=>{const row=document.getElementById('edit-line-'+invalid.uiKey);row?.scrollIntoView({block:'center'});row?.focus({preventScroll:true});});return;}if(included.length>remaining)return setError(`待送出清單還能加入 ${remaining} 筆材料。`);if(included.length&&!onAdd(included.map(l=>({content:l.content,parsed:l.textSource!.parsed,deliveryNote:l.deliveryNote}))))return;setOriginal(text);setText('');setLines([]);setSkipped(new Set());setPending(new Set());setError('');};
+ return <div ref={root} className="text-order-import crew-text-import">
+ {original&&<details className="import-original"><summary>查看上次原文</summary><p className="material-remarks">{original}</p></details>}
+ <label><span className="form-label">叫料文字</span><textarea className="form-control text-order-source" rows={5} maxLength={12000} value={text} placeholder={'每行一筆材料與數量\n例如：2mm² 1C 電線 白色 100M × 5卷'} onChange={e=>{setText(e.target.value);setLines([]);setPending(new Set());setError('');}}/></label>
+ <button type="button" className="btn btn-primary mt-3" disabled={!text.trim()} onClick={analyze}>分析叫料文字</button>
+ {lines.length>0&&<section className="text-analysis" aria-label="叫料分析結果"><div className="analysis-heading"><h3 className="section-title">叫料分析結果</h3><span className="field-hint" aria-live="polite">預計加入 {included.length} 筆{skipped.size?` · 略過 ${skipped.size} 筆`:''}</span></div><p className="field-hint">不需要的材料勾選「略過」，其餘會加入待送出清單。</p>
+ {lines[0].deliveryNote&&<details className="shared-delivery-note"><summary>交貨備註 · 套用 {included.filter(l=>l.deliveryNote?.applied).length} 筆</summary><label><span className="form-label">共用交貨備註</span><textarea className="form-control" rows={3} maxLength={500} value={notes} onChange={e=>setLines(old=>setDeliveryNote({lines:old,consumed:[],merges:[]},scope,e.target.value,new Set(old.filter(l=>l.deliveryNote?.applied).map(l=>l.uiKey))).lines)}/></label><fieldset><legend>適用材料</legend>{lines.map((l,index)=><label className="check-target" key={l.uiKey}><input type="checkbox" checked={Boolean(l.deliveryNote?.applied)} onChange={e=>{const targets=new Set(lines.filter(row=>row.deliveryNote?.applied).map(row=>row.uiKey));if(e.target.checked)targets.add(l.uiKey);else targets.delete(l.uiKey);setLines(setDeliveryNote({lines,consumed:[],merges:[]},scope,notes,targets).lines);}}/>{index+1}. {contentText(l.content,'Item_Name')}</label>)}</fieldset></details>}
+ {lines.map((line,index)=>{const skip=skipped.has(line.uiKey),rule=materials.find(m=>m.id===contentText(line.content,'Material_ID'));return <section className="analysis-row" key={line.uiKey} aria-label={`第 ${index+1} 筆分析材料`}><div className="analysis-heading"><strong>第 {index+1} 筆</strong><label className="check-target"><input type="checkbox" aria-label={`略過第 ${index+1} 筆材料`} checked={skip} onChange={e=>setSkipped(before=>{const next=new Set(before);if(e.target.checked)next.add(line.uiKey);else next.delete(line.uiKey);return next;})}/>略過</label></div><p className="text-order-original">原文：{line.textSource!.parsed.source}</p><div hidden={skip}>
+ <SearchSelect label={`第 ${index+1} 筆對應材料`} value={contentText(line.content,'Material_ID')} options={[...materials].sort((a,b)=>Number(line.textSource!.parsed.candidates.includes(b.id))-Number(line.textSource!.parsed.candidates.includes(a.id))).map(materialOption)} onChange={id=>choose(line,id)} emptyLabel="請選擇對應材料"/>
+ {!line.textSource?.resolved&&<button type="button" className="btn btn-quiet" onClick={()=>edit(line.uiKey,{...line.content,Material_ID:textCell('')},true)}>找不到材料？自行填寫</button>}
+ <OrderMaterialLine key={line.uiKey+':'+epoch+contentText(line.content,'Material_ID')} line={line} index={index} rule={rule} materials={materials} selected={false} mergeMode={false} admin={false} analysis requireConfirmation={false} hideVendor showIssues={showIssues} disabled={false} derived={false} issues={editorLineIssues(line,rule,true,false)} onEdit={edit} onResolve={(key,c)=>edit(key,c,true)} onCheck={()=>{}} onSelect={()=>{}} onRemove={()=>{}} onPending={(key,value)=>setPending(before=>{if(before.has(key)===value)return before;const next=new Set(before);if(value)next.add(key);else next.delete(key);return next;})}/>
+ </div></section>;})}
+ <button type="button" className="btn btn-primary analysis-add" onClick={add}>{included.length?`加入待送出清單（${included.length} 筆）`:'完成（全部略過）'}</button></section>}
+ {error&&<p className="feedback-error" role="alert">{error}</p>}
+ </div>;
 }

@@ -1,7 +1,9 @@
 import { headerColumn, materialColumns } from '@/lib/sheet-table';
 import { materialIdentity } from '@/lib/material-identity';
-export const ORDER_STATUSES = ['編輯中', '處理中', '審核中', '審核完畢', '準備出貨', '已送達'] as const;
-export type OrderStatus = (typeof ORDER_STATUSES)[number];
+export const ORDER_STATUSES = ['編輯中', '處理中', '審核完畢', '準備出貨', '已送達'] as const;
+// The frozen Guard recognizes this quarantined value to reject it. It is NOT
+// accepted by isOrderStatus, v2 requests, H2, or any new write transition.
+export type OrderStatus = (typeof ORDER_STATUSES)[number] | '審核中';
 
 export type MaterialRule = {
   id: string;
@@ -23,7 +25,7 @@ export type OrderItemInput = {
 };
 
 export const isOrderStatus = (value: unknown): value is OrderStatus =>
-  typeof value === 'string' && ORDER_STATUSES.includes(value as OrderStatus);
+  typeof value === 'string' && (ORDER_STATUSES as readonly string[]).includes(value);
 
 export const isUserEditableStatus = (status: string) => status === '編輯中' || status === '處理中';
 
@@ -32,9 +34,8 @@ export const canUserMoveStatus = (from: string, to: string) =>
   (from === '處理中' && to === '處理中');
 
 export const canAdminMoveStatus = (from: string, to: OrderStatus) => {
-  if (to === '處理中') return ['審核中', '審核完畢', '準備出貨'].includes(from);
-  if (to === '審核中') return from === '處理中';
-  if (to === '審核完畢') return from === '審核中';
+  if (to === '處理中') return ['審核完畢', '準備出貨'].includes(from);
+  if (to === '審核完畢') return from === '處理中';
   if (to === '準備出貨') return from === '審核完畢';
   if (to === '已送達') return from === '準備出貨';
   return false;
@@ -59,8 +60,8 @@ export function toMaterialRules(rows: unknown[][]): MaterialRule[] {
   const c = materialColumns(rows);
   return rows.slice(1).map((row) => ({
     id: String(row[c.id] ?? ''), name: String(row[c.name] ?? '').trim(), vendor: String(row[c.vendor] ?? '').trim(),
-    unit: String(row[c.unit] ?? '').trim(), minQty: Number.parseInt(String(row[c.min] ?? ''), 10) || 1,
-    stepQty: Number.parseInt(String(row[c.step] ?? ''), 10) || 1,
+    unit: String(row[c.unit] ?? '').trim(), minQty: Number(row[c.min]),
+    stepQty: Number(row[c.step]),
     requiresRemarks: c.remarks >= 0 && ['true', '1', 'yes'].includes(String(row[c.remarks]).trim().toLowerCase()),
   })).filter((material) => material.id && material.name);
 }

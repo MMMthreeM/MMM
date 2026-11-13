@@ -1,95 +1,47 @@
 # 維運材料管理平台（MMM）
 
-更新：2026-10-29。工班共用材料需求與草稿，管理員整單審核、匯出廠商報表。以目前程式為準，正式外部服務需另外驗收。
+工班建立、核對及追蹤材料需求；管理員審核、整理廠商報表及更新交貨進度。介面以白色工作面、藍色主要操作與清楚的資訊層級為基準。
+
+目前只有一套 Google Sheets 業務資料庫，固定儲存契約為 Schema 3（Orders 21 欄、Draft_Item_State 13 欄、Order_History 10 欄）。HTTP contractVersion: 2 是目前 API 契約，與儲存版本分開；沒有舊庫自動判斷或降級寫入。PostgreSQL、獨立 Head 與 Genesis 已移除。
 
 ## 開發與驗證
 
-已安裝相依套件後執行 npm run dev；預設 http://localhost:3000。正式版 npm run build，再 npm start。
-檢查：npm run lint、npm test、npm run build。瀏覽器回歸為 npm run test:ui，需可用的 Playwright 與瀏覽器；可指定 PLAYWRIGHT_MODULE_DIR、UI_BASE_URL、UI_ARTIFACT_DIR。測試攔截 API，不改正式 Sheets、不實際發 TG。
-先讀 AGENTS.md 與 node_modules/next/dist/docs/ 中的相關指南。本專案使用 Next.js 16.4.3、React 19.3、Google Sheets、NextAuth、Sentry。
+- npm run dev：本機開發。
+- npm test：目前單一 Sheets、權限、協調與前端純邏輯測試。
+- npm run test:ui：使用 Playwright 與 Edge，以合成資料攔截 API，驗證 320、390、768、1440px 及 100 筆材料。預設啟動本機隔離環境的伺服器；可指定 PLAYWRIGHT_MODULE_DIR、UI_ARTIFACT_DIR、UI_BASE_URL（僅 loopback）。
+- npm run lint、npm run build：程式檢查與正式編譯。
+- npm run migration:prepare -- --source <私有盤點檔> --out <新的私有轉換檔>：一次性搬移的離線工具，不連線或寫入；新庫已搬移完成，不要再次覆蓋。
 
-## 環境與部署
+開始修改前先讀 AGENTS.md 與 node_modules/next/dist/docs/ 的相關指南。Next.js 16.4.3、React 19.3。
 
-本機使用 .env.local；不可提交密鑰。Vercel Production 必須獨立設定並重新部署：
-- Google：GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET、GOOGLE_CLIENT_EMAIL、GOOGLE_PRIVATE_KEY、GOOGLE_SHEET_ID。
-- 登入：NEXTAUTH_URL、NEXTAUTH_SECRET。
-- 通知：TELEGRAM_BOT_TOKEN、TG_ADMIN_GROUP_ID、TG_TOPIC_NEW_ORDER、TG_TOPIC_RETURN、TG_TOPIC_ERROR。
-- 每日提醒：TG_TOPIC_PENDING_REVIEW=30、CRON_SECRET（建議至少 32 個隨機字元）。
-Sentry 沿用專案既有設定；不要把部署密鑰貼進文件。每日提醒設 UTC 01:00（台灣 09:00），包含假日；詳見 docs/daily-reminder.md。
+## 執行環境
 
-## 導覽與資料
+密鑰使用 .env.local 或部署主機的安全環境設定，不提交 Git、不貼入文件。
 
-管理作業：管理工作總覽、材料審核中心、趨勢分析儀表板。工班作業：建立材料需求、歷史需求單。一般工班首頁為材料趨勢分析儀表板。
-Users 是登入白名單；工班資料按 Company 共用，不等於個人建立的資料。Materials 欄位詳見 docs/material-catalog.md。Orders 一列一項材料，同 Order_ID 為整張單；狀態規則由 lib/order-domain.ts 管理，畫面標示由 lib/order-view.ts 管理。
+- Google 登入：GOOGLE_CLIENT_ID、GOOGLE_CLIENT_SECRET、NEXTAUTH_URL、NEXTAUTH_SECRET。
+- Sheets 服務帳號：GOOGLE_CLIENT_EMAIL、GOOGLE_PRIVATE_KEY、GOOGLE_SHEET_ID；服務帳號須有新庫編輯權限。
+- 確認簽章：SHEETS_CONFIRMATION_SECRET（至少 32 bytes）；未配置時才使用足夠長的 NEXTAUTH_SECRET。
+- Redis 協調／稽核：UPSTASH_REDIS_REST_URL、UPSTASH_REDIS_REST_TOKEN。
+- 通知：TELEGRAM_BOT_TOKEN、TG_ADMIN_GROUP_ID、TG_TOPIC_NEW_ORDER、TG_TOPIC_RETURN、TG_TOPIC_ERROR；每日提醒另用 TG_TOPIC_PENDING_REVIEW、CRON_SECRET。
 
-## 文件索引
+Users 是登入白名單，工班以 Company 共用需求。所有需求寫入經過權限、限流、Redis 擁有者鎖、持久稽核意圖、單次 Sheets batch、寫後讀回。結果不明時保留表單與鎖，不自動重送。
 
-- docs/backlog.md：已確認待辦，包含獨立測試平台及管理員上傳新版 Excel 範本；尚未實作。
+## 主要流程
 
-- 材料需求管理平台 - 設計規格確認書.txt：現行功能、欄位、權限與限制。
-- 材料需求管理平台 - 專案執行計畫.txt：交付範圍、驗證與正式驗收待辦。
-- PRODUCT.md：產品原則與視覺方向。
-- docs/terminology.md：頁面、動作及狀態名稱。
-- docs/code-review.md：程式結構、清理結果與保留用途。
-- docs/verification.md：驗證範圍與限制。
-- docs/telegram-formats.md：推播格式；docs/notifications.md：手機通知與未實作的 Web Push。
+草稿 → 待審核／退回待修改 → 審核中／審核完畢 → 準備出貨 → 已送達。匯出報表不推進狀態。退回須有具體材料目標與原因，重新送出須逐項處理。
 
-有 manifest 與桌面圖示，不代表已有離線下單或網站原生推播。訂單四位隨機碼與 Sheets 全表操作依既有約定未重構。
+首頁提供建立需求、待辦及最近需求。歷史分為進行中、草稿、已送達；桌機以清單與詳情並排，手機使用獨立詳情頁。修改完成保留搜尋與原位置。
 
-安全修補更新（2026-10-30）：材料驗證／匯出採一致正規化並重查數量；自訂寫入 API 驗證 Origin、JSON 類型及 128 KiB 上限；Redis 共用帳號限流、非自動過期的全表寫入鎖及先存意圖的稽核補寫。修改單據刪舊與新增改為單次 Sheets 批次。新增管理員稽核補寫入口，待補寫不重送訂單。必須先配置 UPSTASH_REDIS_REST_URL／UPSTASH_REDIS_REST_TOKEN 與正確 NEXTAUTH_URL，否則拒絕寫入；讀取、部署、舊版切換與手動解鎖限制請完整閱讀 docs/security-deployment.md（docs 內文件參照 security-deployment.md）。目前僅模擬測試，真實 Redis 及正式外部服務待驗收。
+材料編輯以連續白色清單呈現名稱、數量及備註；合併進入選取模式，搜尋／問題篩選與更多操作按需展開。文字叫料已核對的內容沿用確認，修改任一相關欄位會取消該筆確認；整單仍有獨立最後確認。
 
-本輪安全驗證結果（2026-10-30）：35 項模擬流程／安全測試、lint、正式版編譯及攔截 API 的完整桌機／手機回歸通過；包含管理員稽核補寫按鈕。真實 Redis 服務尚未建立，不宣稱已完成正式 Redis／多實例／外部服務驗收。部署前必須先閱讀 docs/security-deployment.md，未設定安全協調服務時拒絕寫入。
+## 文件
 
+- [Git／Vercel 部署步驟與專案整理紀錄](docs/git-vercel-deployment.md)
+- [本輪清理、UI 與真實讀寫驗證](docs/single-sheet-ui-cleanup-2026-11-12.md)
+- [固定契約、搬移與部署交接](docs/single-sheet-migration-2026-11-11.md)
+- [目前部署與復原規則](docs/security-deployment.md)
+- [資料欄位](docs/sheet-headers.md)、[材料目錄](docs/material-catalog.md)
+- [視覺規範](DESIGN.md)、[PDF 36 階段追蹤](docs/uiux-review-2026-11-11-requirements.md)
+- [原始驗收紀錄](docs/verification.md)：標記的 T07～T10 內容是舊架構歷史紀錄，不能當成目前部署指令。
 
-## 2026-10-30：文字叫料與頁尾工具
-
-- 建立材料需求保留逐項選料，新增「文字叫料：貼上清單批次填入」。在瀏覽器內解析，不接外部 AI、不新增 API、不自動送單。
-- 每行一項，最多 12,000 字／100 筆。明確的「100M × 5卷」計為 500 M；不猜測箱、包等包裝內含量。找不到材料、單位不一致、非整數、最低量／級距不符及混合材料備註未填均須使用者處理。
-- 僅唯一且名稱或別名完全符合的材料預先帶入；其餘提供候選與搜尋。逐筆確認後加入既有待送出清單，總上限仍為 100 筆；送出仍經原訂單 API 的權限與材料規則驗證。
-- 原文每行保留於確認畫面。以【、備註：、注意：、交貨：開頭的行整理為共用交貨備註，可修改並套用到保留材料。每筆與共用備註合併最多 500 字。
-- 解析失敗的行不會消失，可手動對應或明確取消保留；自填材料沿用原填單入口。未完成的文字具有離頁提醒，正式送出／儲存草稿前須先加入或清除。
-- 稽核紀錄維護改為所有管理員頁面的頁尾展開工具，一般工班不顯示，後端維持管理員權限檢查。
-- 問題回報成功提示顯示 6 秒後自動收起；失敗保留輸入並顯示錯誤。
-
-
-## 2026-10-30：文字叫料操作修訂與材料改名（本節取代先前同功能說明）
-
-- 單位不同時，依使用者指定規則建議「最低數量 × 原文數量」；無數量則預填最低量，顯示最低量、級距與計算式。仍須人工核對且不得跳過數量規則。
-- 每筆只保留確認勾選，另以略過／恢復按鈕決定是否加入。未確認或資料不符時定位並聚焦第一筆未完成材料。
-- 文字叫料可直接自填材料名稱、單位、數量；走既有自填驗證。自填材料匯出前須由管理員確認規格及本次供應商；範本外材料會追加。
-- 交貨備註預設不套用任何材料，須指定一筆或多筆；未指定時提醒選擇或清除，避免默默遺漏。修改備註後相關項目須重新確認。
-- 確認頁的新增材料移至儲存草稿／正式送出旁；建立頁提供「開啟草稿」，直接進入歷史需求單的草稿分頁，仍受未儲存離頁提醒保護。
-- 新增與待補寫稽核 Timestamp 使用台灣時間 yyyy-MM-dd HH:mm；不批次改寫既有 Sheet 稽核列。
-- Materials 新增選填後端欄位 Report_Name、Export_Aliases，依廠商及單位精確對應範本；同時保留報表單價及數量驗證，模糊或衝突對應會阻擋。前端名稱建議優先修改 Display_Name。詳細維護方式見 docs/material-naming.md。
-
-
-## 2026-10-30：全工作表依表頭讀寫
-
-Users、Materials、Orders、System_Notices、Audit_Logs 全面改為依第一列表頭定位，登入、權限、材料驗證、訂單新增／修改／刪除、狀態更新、通知、報表單價與名稱對應、稽核補寫皆適用。整張工作表讀取不受舊固定欄位範圍限制。缺漏必要欄位、重複或同義表頭衝突皆報錯，不使用位置回退。可重排欄位，但表頭仍須第一列且名稱須符合明確支援的正式名稱或別名；部署新版後再調整 Google Sheet。詳細說明見 docs/sheet-headers.md。本節取代舊文件要求保留 A:H／A:N／A:F 固定欄位順序的限制。廠商輸出範本仍維持既定格式。
-
-
-## 2026-10-31：填單、地區與需求狀態一致性
-
-- 文字叫料先逐筆確認，交貨備註及指定對象移到全部材料下方、加入清單按鈕上方。備註對象以獨立留白選項呈現，桌機兩欄、手機一欄；每筆的確認與略過位於同一操作區。最後指定交貨備註不取消已確認材料，加入前仍檢查合併備註長度及其他材料規則。
-- 填單成功提示於下一次表單操作或步驟切換時清除。公告內容寬度與頁首一致，手機亦對齊。
-- 管理員分析儀表板新增地區篩選；分析及審核皆先地區、再工班，變更地區會清除舊工班條件。分析下探返回會還原地區，切換條件重設分頁／月份範圍。
-- 兩頁共用 lib/order-status.ts 的「需求狀態」選項及 lib/order-view.ts 整單篩選邏輯：全部正式需求、待審核、退回待修改、審核中、審核完畢、準備出貨、已送達、全部待處理（含退回）。草稿不納入正式分析／審核。
-- 資料庫 Status 與 API 狀態值新增審核完畢，其餘維持既有值，編輯中顯示草稿；處理中無有效退回原因顯示待審核，有有效原因顯示退回待修改；[已重送] 舊原因不會算成退回。審核中／審核完畢／準備出貨／已送達維持原名，不新增已出貨或已完成狀態。網頁標籤、新單與進度 TG 通知、待審核提醒及新稽核摘要統一使用上述用語。
-- 額外 UIUX、資安、效能建議僅列於 docs/optimization-review-2026-10-31.md，尚未實作。
-
-
-2026-10-31 操作用詞與選料簡化：重訂按鈕統一為「再訂一次」，草稿入口為「開啟草稿」。移除常用材料、最近選用及收藏功能，保留分類／關鍵字選料、文字叫料、自填材料。文字叫料提示使用指定的電線、電纜、LED 燈泡及 ELCB 範例；範例只有提示，不會預先加入需求。
-
-
-## 2026-11-01：採購對應與匯出／狀態分離
-
-- 審核中心以「材料／廠商對應」逐筆指定伸泰、益詮、賀冠，可對應現有材料或保留自填名稱及單位；不須為臨時換廠商複製 Materials。材料庫最低量、級距、必要備註與資料版本仍由後端檢查。
-- 流程為：草稿（編輯中）→待審核（處理中）→審核中→審核完畢→準備出貨→已送達。完成審核須全單材料完成有效採購對應。審核完畢不代表出貨；準備出貨另按按鈕，交期選填。
-- 篩選與勾選匯出適用所有狀態一致的正式需求；草稿排除。匯出、重新下載、賀冠詢價一律不推進狀態、不發出貨通知。產檔後仍重查版本。
-- 伸泰、益詮保留原範本與全部材料；範本外材料追加至最後材料下一列，沿用樣式並調整後續公式／列位置／列印範圍。同廠商同名同單位加總，依工班分欄，未叫料留白。只用目標廠商的有效單價，跨廠商缺價留空。
-- 賀冠以可編輯文字視窗提供工班、單號、品項、數量單位、備註，管理員自行複製聯絡。混合廠商匯出另開賀冠文字；全部只有賀冠時請直接使用「賀冠詢價」。
-- 管理員對應儲存時，自動在 Orders 追加缺少的 Material_ID、Original_Item_Name 表頭；仍依表頭定位，不要求固定欄序，舊單可繼續讀取。前者保存所選材料庫的 ID（即使供應商不同），後者保存原需求料名；純自填的 Material_ID 為空。
-- 成功更新狀態後，自動切至目標需求狀態、清除勾選、回第一頁並定位清單，保留其他篩選。退回切至退回待修改。管理首頁及歷史／分析篩選新增審核完畢。
-- 上線需部署含前後端的新版本；既有準備出貨單不會被回溯更改。無新增環境變數。本機驗證與正式服務驗收分開記錄。
-
-詳細操作與限制見 docs/procurement-workflow.md。
+新庫已搬移 62 張需求、356 筆材料，3 張審核完畢需求可接續操作。已驗證真實服務帳號的維護草稿建立／修改／刪除及 Redis／稽核；既有需求逐格保持一致。尚未部署網站、測試真人 OAuth 登入或實際通知收件。

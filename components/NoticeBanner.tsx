@@ -1,42 +1,20 @@
 'use client';
-import { useState, useEffect } from 'react';
-
+import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { useAccount } from './AppShell';
+// UI preference only. Exact content digests do not authorize business actions.
+async function preferenceKey(value:string) {const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');}
 export default function NoticeBanner() {
-  const [notices, setNotices] = useState<string[]>([]);
-  const [isVisible, setIsVisible] = useState(true);
-
-  useEffect(() => {
-    fetch('/api/notices')
-      .then(res => res.json())
-      .then(data => {
-        if (data.data && data.data.length > 0) {
-          setNotices(data.data);
-        }
-      })
-      .catch(err => console.error('無法載入公告', err));
-  }, []);
-
-  // 如果沒有公告，或者使用者按了關閉，就不顯示
-  if (!isVisible || notices.length === 0) return null;
-
-  return (
-    <div className="notice-banner"><div className="notice-banner-inner">
-      <div className="flex flex-col gap-1 flex-1">
-        {notices.map((notice, idx) => (
-          <div key={idx} className="flex items-center gap-2 text-sm font-bold">
-            <span className="h-2 w-2 rounded-full bg-[#d9a300]" aria-hidden="true" />
-            <span>{notice}</span>
-          </div>
-        ))}
-      </div>
-      <button 
-        onClick={() => setIsVisible(false)} 
-        className="ml-4 px-2 font-bold text-[#9a7000] hover:text-[#5d4300]"
-        title="關閉公告"
-        aria-label="關閉公告"
-      >
-        ✕
-      </button>
-    </div></div>
-  );
+  const account=useAccount(),path=usePathname();
+  const [state,setState]=useState<{account:string;notices:{text:string;key:string}[];closed:string[]}|null>(null);
+  const [showAll,setShowAll]=useState(false);
+  useEffect(()=>{if(!account)return;let active=true;const email=account.email;Promise.all([fetch('/api/notices',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error();return r.json();}),preferenceKey(email)]).then(async([body,owner])=>{const texts:unknown=body.data;if(!Array.isArray(texts))return;const notices=await Promise.all([...new Set(texts.filter((n):n is string=>typeof n==='string'))].map(async text=>({text,key:'mmm-notice:'+owner+':'+await preferenceKey(text)})));let closed:string[]=[];try{closed=notices.filter(n=>localStorage.getItem(n.key)==='closed').map(n=>n.key);}catch{}if(active)setState({account:email,notices,closed});}).catch(()=>{});return()=>{active=false;};},[account]);
+  useEffect(()=>{const show=()=>{setShowAll(true);};window.addEventListener('mmm-show-notices',show);return()=>window.removeEventListener('mmm-show-notices',show);},[]);
+  if(!state||state.account!==account?.email||path.startsWith('/request')&&!showAll)return null;
+  const visible=state.notices.filter(n=>showAll||!state.closed.includes(n.key));if(!visible.length)return null;
+  const close=(key:string)=>{try{localStorage.setItem(key,'closed');}catch{}setState(s=>s?{...s,closed:[...s.closed,key]}:s);};
+  return <aside className="notice-banner" aria-label="系統公告"><div className="notice-banner-inner">
+    <ul className="notice-lines">{visible.map(n=><li key={n.key}><span className="notice-bullet" aria-hidden="true"/><p>{n.text}</p></li>)}</ul>
+    <button type="button" className="notice-close" title="關閉公告" aria-label="關閉公告" onClick={()=>{visible.forEach(n=>close(n.key));setShowAll(false);}}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+  </div></aside>;
 }

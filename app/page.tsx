@@ -2,7 +2,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount } from '@/components/AppShell';
-import AnalyticsDashboard from '@/components/AnalyticsDashboard';
+import CrewOverview from '@/components/CrewOverview';
 import AdminOverview from '@/components/AdminOverview';
 
 export default function Home() {
@@ -11,5 +11,5 @@ export default function Home() {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has('loadOrderId')) router.replace('/request' + window.location.search);
   }, [router]);
-  return account?.role === 'Admin' ? <AdminOverview /> : <AnalyticsDashboard />;
+  return account?.role === 'Admin' ? <AdminOverview /> : <CrewOverview />;
 }

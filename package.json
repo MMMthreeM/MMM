@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test tests/order-workflow.test.cjs",
+    "test": "node --test --test-isolation=none tests/single-sheet.test.cjs tests/single-sheet-security.test.cjs tests/order-ui.test.cjs tests/t10-ui.test.cjs",
+    "migration:prepare": "node scripts/migrate-single-sheet.cjs",
     "test:ui": "node tests/ui-smoke.cjs"
   },
   "dependencies": {

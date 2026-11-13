@@ -1,5 +1,9 @@
 import { orderStatusLabel } from '@/lib/order-status';
-export type Account = { email: string; role: 'Admin' | 'User'; company: string; region: string; name: string };
+import type { SevenContent } from './order-change-set';
+import type { PermanentLineRef } from './order-identity';
+export type PublicHistoryEvent = { eventId: string; eventType: string; actor: string; at: string; statusBefore: string | null; statusAfter: string | null; reason: string | null; returnTargets?:{lineRef:PermanentLineRef;mcf:string;name:string|null;reason:string}[]; closureCause?: 'replaced'|'resubmitted'; introducedCount?:number;retiredCount?:number; targetResolutions: { outcome: string; sourceLineRef: PermanentLineRef; resultLineRefs: readonly PermanentLineRef[]; reason: string }[] };
+export type CrewOption = { company: string; region: string };
+export type Account = { email: string; role: 'Admin' | 'User'; company: string; region: string; name: string; crews?: CrewOption[] };
 
 export type OrderRow = {
   lineId: string; returnNote: string;
@@ -7,17 +11,22 @@ export type OrderRow = {
   materialName: string; quantity: number; unit: string; remarks: string; vendor: string;
   status: string; adminNote: string; draftName: string; adminUser: string; expectedDate: string;
   catalogId?: string; originalMaterialName?: string;
+  mcf?: string; lineRef?: { kind: 'permanent'; orderId: string; lineId: string }; content?: SevenContent;
+  originalContent?:SevenContent;
+  activeReturnRef?: string; effectiveReview?: string; sourceKind?: string; resolutionKind?: string;
+  returnInfo?: { eventId: string; reason: string; scope: string; targets: { lineRef: PermanentLineRef; mcf: string; reason: string | null; name?: string; currentLineRef?: PermanentLineRef | null }[] };
+  history?: PublicHistoryEvent[];
+  readState?: 'verified' | 'unverified';
 };
 export type OrderGroup = { orderId: string; items: OrderRow[]; status: string; consistent: boolean; first: OrderRow };
 export type OrderFilters = { company?: string; region?: string; vendor?: string; material?: string; status?: string; startDate?: string; endDate?: string; search?: string };
 
 export function isReturnedOrder(group: OrderGroup) {
-  const activeReason = (note: string) => Boolean(note.trim() && !note.trim().startsWith('[已重送]'));
-  return group.status === '處理中' && group.items.some((item) => activeReason(item.returnNote || '') || activeReason(item.adminNote || ''));
+  return group.consistent && group.status === '處理中' && group.items.every(item => item.readState !== 'unverified' && item.activeReturnRef?.startsWith('event:'));
 }
 
 export function orderPresentation(group: OrderGroup) {
-  if (!group.consistent) return { label: '資料狀態不一致', tone: 'returned' };
+  if (!group.consistent) return { label: group.items.some(i => i.readState === 'unverified') ? '資料待核實' : '資料狀態不一致', tone: 'returned' };
   if (isReturnedOrder(group)) return { label: orderStatusLabel(group.status, true), tone: 'returned' };
   const statuses: Record<string, { label: string; tone: string }> = {
     編輯中: { label: '草稿', tone: 'draft' }, 處理中: { label: '待審核', tone: 'processing' },
@@ -36,7 +45,7 @@ export function groupOrders(rows: OrderRow[]): OrderGroup[] {
     items.push(row);
     groups.set(row.orderId, items);
   }
-  return [...groups].map(([orderId, items]) => ({ orderId, items, first: items[0], status: items[0].status, consistent: items.every((item) => item.status === items[0].status && item.reqCompany === items[0].reqCompany) }));
+  return [...groups].map(([orderId, items]) => ({ orderId, items, first: items[0], status: items[0].status, consistent: items.every((item) => item.readState !== 'unverified' && item.status === items[0].status && item.reqCompany === items[0].reqCompany && item.activeReturnRef === items[0].activeReturnRef) }));
 }
 
 // Select complete orders, so a material search never hides selected order lines.

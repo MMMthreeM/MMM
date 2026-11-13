@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "@/components/order-reading.css";
 // 💡 改為引入我們剛建立的客戶端 Providers 包裝
 import Providers from '@/components/Providers'; 
 import NoticeBanner from '@/components/NoticeBanner';

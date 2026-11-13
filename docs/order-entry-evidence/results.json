@@ -1,0 +1,175 @@
+{
+  "results": [
+    {
+      "capture": "empty-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 0,
+      "overflow": []
+    },
+    {
+      "capture": "list-3-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 3,
+      "overflow": []
+    },
+    {
+      "capture": "list-3-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 3,
+      "overflow": []
+    },
+    {
+      "capture": "list-3-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 3,
+      "overflow": []
+    },
+    {
+      "capture": "list-3-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 3,
+      "overflow": []
+    },
+    {
+      "capture": "list-10-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 10,
+      "overflow": []
+    },
+    {
+      "capture": "list-10-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 10,
+      "overflow": []
+    },
+    {
+      "capture": "list-10-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 10,
+      "overflow": []
+    },
+    {
+      "capture": "list-10-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 10,
+      "overflow": []
+    },
+    {
+      "capture": "list-13-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "list-13-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "list-13-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "list-13-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "list-100-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 100,
+      "overflow": []
+    },
+    {
+      "capture": "list-100-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 100,
+      "overflow": []
+    },
+    {
+      "capture": "list-100-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 100,
+      "overflow": []
+    },
+    {
+      "capture": "list-100-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 100,
+      "overflow": []
+    },
+    {
+      "capture": "parsed-13-390",
+      "width": 390,
+      "scroll": 390,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "parsed-13-1440",
+      "width": 1440,
+      "scroll": 1440,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "parsed-13-768",
+      "width": 768,
+      "scroll": 768,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "parsed-13-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 13,
+      "overflow": []
+    },
+    {
+      "capture": "final-review-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 0,
+      "overflow": []
+    },
+    {
+      "capture": "unknown-result-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 0,
+      "overflow": []
+    },
+    {
+      "capture": "admin-shared-editor-320",
+      "width": 320,
+      "scroll": 320,
+      "rows": 3,
+      "overflow": []
+    }
+  ],
+  "errors": [],
+  "posts": 2,
+  "passed": true
+}

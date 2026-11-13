@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { rankSearchOptions } from '@/lib/material-catalog';
 
 export type SearchOption = { value: string; label: string; detail?: string; keywords?: string };
-export default function SearchSelect({ label, value, options, onChange, emptyLabel = '全部', placeholder = '輸入名稱或關鍵字', disabled = false, valueLabel }: { label: string; value: string; options: SearchOption[]; onChange: (value: string) => void; emptyLabel?: string; placeholder?: string; disabled?: boolean; valueLabel?: string }) {
+export default function SearchSelect({ label, value, options, onChange, emptyLabel = '全部', placeholder = '輸入名稱或關鍵字', disabled = false, valueLabel, labelHidden = false }: { label: string; value: string; options: SearchOption[]; onChange: (value: string) => void; emptyLabel?: string; placeholder?: string; disabled?: boolean; valueLabel?: string; labelHidden?: boolean }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -51,7 +51,7 @@ export default function SearchSelect({ label, value, options, onChange, emptyLab
     return () => document.removeEventListener('pointerdown', close);
   }, []);
   return <div className="search-select" ref={root}>
-    <label className="form-label" htmlFor={`${id}-input`}>{label}</label>
+    <label className={labelHidden ? 'sr-only' : 'form-label'} htmlFor={`${id}-input`}>{label}</label>
     <div className="search-select-control"><input id={`${id}-input`} ref={input} name="materialSearch" autoComplete="off" spellCheck={false} className="form-control" role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={open ? `${id}-list` : undefined} aria-activedescendant={open && visible[active] ? `${id}-option-${active}` : undefined} value={open ? query : selected?.label || valueLabel || ''} placeholder={value ? selected?.label || valueLabel : emptyLabel || placeholder} disabled={disabled}
       onFocus={expand} onClick={expand}
       onChange={(event) => { setQuery(event.target.value); setPage(0); setActive(0); setOpen(true); }}

@@ -1,508 +1,139 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- Standalone Node browser check without a test runner dependency. */
-const assert = require('node:assert/strict');
-const path = require('node:path');
-const fs = require('node:fs');
-const { chromium } = require(require.resolve('playwright', { paths: [process.env.PLAYWRIGHT_MODULE_DIR, process.cwd()].filter(Boolean) }));
+/* eslint-disable @typescript-eslint/no-require-imports -- local browser + synthetic external ports */
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {spawn,spawnSync}=require('node:child_process');
+const {chromium}=require(require.resolve('playwright',{paths:[process.env.PLAYWRIGHT_MODULE_DIR,path.resolve('.tools/artifact/node_modules'),process.cwd()].filter(Boolean)}));
+const artifacts=process.env.UI_ARTIFACT_DIR||fs.mkdtempSync(path.join(os.tmpdir(),'mmm-v2-ui-'));
+fs.mkdirSync(artifacts,{recursive:true});
+const base=process.env.UI_BASE_URL||'http://127.0.0.1:3107';
+const parsed=new URL(base);assert(['127.0.0.1','localhost'].includes(parsed.hostname),'Local mock UI only');
+let dev,browser,page,devOutput='';
 
-const artifacts = process.env.UI_ARTIFACT_DIR || path.join(require('node:os').tmpdir(), 'material-management-ui-check');
-fs.mkdirSync(artifacts, { recursive: true });
-const base = process.env.UI_BASE_URL || 'http://127.0.0.1:3000';
-const realCatalog = process.env.UI_CATALOG_PATH ? JSON.parse(fs.readFileSync(process.env.UI_CATALOG_PATH, 'utf8')) : [
-  { id: 'W1', name: '1.25mm2-2C 單線 /黑色', displayName: '1.25mm2-2C 單線 /黑色', unit: 'M', vendor: '伸泰', minQty: 100, stepQty: 100, tags: ['電線'], aliases: ['黑線'], category: '電線電纜', subcategory: '多芯電纜' },
-  { id: 'B1', name: 'LED 35W\nPB5上蓋', displayName: '混合用料（LED／PB5）', unit: '項', vendor: '益詮', minQty: 1, stepQty: 1, tags: ['混合材料'], aliases: ['組合材料'], category: '綜合材料', subcategory: '混合用料', requiresRemarks: true, orderHint: '請確認各項材料與數量' },
-];
-let nextLine = 0;
-const makeRow = (orderId, materialName, quantity, status = '處理中', reqCompany = '甲工班') => ({ lineId: `line-${++nextLine}`, returnNote: '', orderId, orderDate: '2026-10-26 12:56', reqUser: '申請人', reqCompany, reqRegion: '高雄', materialName, quantity, unit: materialName === 'S' ? '式' : 'M', remarks: '需要確認現場規格與交貨時間，這是一段較長的手機版測試備註。', vendor: '伸泰', status, adminNote: '', draftName: '', adminUser: '管理者', expectedDate: '' });
 
-(async () => {
-  const browser = await chromium.launch({ headless: true, channel: process.env.UI_BROWSER_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined) });
-  let page;
-  try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-    const state = { role: 'Admin', failExport: true, exportBody: null, orders: [makeRow('ORD-20261026-9212', '電線', 100), makeRow('ORD-20261026-9212', '電線', 100), makeRow('ORD-20261026-9212', 'S', 1), makeRow('ORD-20261026-9212', '電線', 200), makeRow('ORD-OTHER', '電線', 50, '審核中', '乙工班'), makeRow('ORD-REVIEW', '長名稱材料／測試手機版文字不應將操作按鈕擠出畫面', 20, '審核中'), makeRow('DRAFT-1', '電線', 100, '編輯中')] };
-    const errors = [];
-    await context.route('**/api/**', async (route) => {
-      const url = new URL(route.request().url());
-      const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-      if (url.pathname === '/api/auth/session') return json({ user: { name: '測試使用者', email: 'test@example.test' }, expires: '2099-01-01T00:00:00.000Z' });
-      if (url.pathname === '/api/admin/retry-audit') { state.auditRetries=(state.auditRetries||0)+1; return json({status:'success'}); }
-      if (url.pathname === '/api/me') return json({ account: { role: state.role, company: '甲工班', region: '高雄', name: '測試使用者', email: 'test@example.test' } });
-      if (url.pathname === '/api/notices') return json({ data: ['系統測試公告，請確認資料。'] });
-      if (url.pathname === '/api/report-issue') return json({ status: 'success' });
-      if (url.pathname === '/api/materials') return json({ data: [{ id: 'M1', name: '電線', unit: 'M', vendor: '伸泰', minQty: 100, stepQty: 100, tags: [] }, ...Array.from({ length: 240 }, (_, index) => ({ id: `M-${index}`, name: `規格材料 ${index} 長名稱檢查`, unit: '式', vendor: '伸泰', minQty: 1, stepQty: 1, tags: ['配件'] })), ...realCatalog.map((material) => ({ ...material, id: `REAL-${material.id}` }))] });
-      if (url.pathname === '/api/orders' && route.request().method() === 'POST') {
-        const body = route.request().postDataJSON();
-        assert.deepEqual(Object.keys(body).sort(), ['draftName', 'existingOrderId', 'items', 'status']);
-        assert(body.items.every((item) => !('price' in item) && !('Price' in item)));
-        const id = body.existingOrderId || 'CREATED-RWD';
-        state.orders = state.orders.filter((row) => row.orderId !== id).concat(body.items.map((item) => ({ ...makeRow(id, item.materialName, item.quantity, body.status), ...item, draftName: body.draftName })));
-        return json({ status: 'success', orderId: id, message: body.status === '編輯中' ? '草稿已儲存' : '訂單已送出' });
+
+async function startDev(){
+  if(process.env.UI_START_DEV==='0')return;
+  // Temporary preload is outside the repository. All child workers inherit the
+  // same no-dotenv / loopback-only network fence; no formal credentials are read.
+  const preload=path.join(artifacts,'local-only-preload.cjs');
+  fs.writeFileSync(preload,`const env=require(${JSON.stringify(require.resolve('@next/env'))});env.loadEnvConfig=()=>({combinedEnv:process.env,parsedEnv:{},loadedEnvFiles:[]});
+const fs=require('node:fs'),p=require('node:path'),protectedPath=p.resolve(process.cwd(),'AGENTS.md');const originalWrite=fs.writeFile,originalSync=fs.writeFileSync,originalPromise=fs.promises.writeFile;const protectedFile=x=>typeof x==='string'&&p.resolve(x)===protectedPath;fs.writeFile=function(file,...args){if(protectedFile(file)){const cb=args.at(-1);if(typeof cb==='function')queueMicrotask(()=>cb(null));return;}return originalWrite.call(this,file,...args);};fs.writeFileSync=function(file,...args){if(!protectedFile(file))return originalSync.call(this,file,...args);};fs.promises.writeFile=async function(file,...args){if(!protectedFile(file))return originalPromise.call(this,file,...args);};
+const net=require('node:net'),connect=net.Socket.prototype.connect;net.Socket.prototype.connect=function(...args){let a=args[0];if(Array.isArray(a))a=a[0];const host=typeof a==='object'?a.host:typeof args[1]==='string'?args[1]:'localhost';const pipe=typeof a==='string'&&!/^\\d+$/.test(a)||a&&typeof a==='object'&&a.path;if(!pipe&&!['localhost','127.0.0.1','::1','[::1]'].includes(host||'localhost'))throw Error('Synthetic UI prohibits external network');return connect.apply(this,args);};
+const fetch=globalThis.fetch;globalThis.fetch=(url,...args)=>{const target=new URL(typeof url==='string'?url:url.url||url.toString());if(!['localhost','127.0.0.1','[::1]'].includes(target.hostname))return Promise.reject(Error('Synthetic UI prohibits external fetch'));return fetch(url,...args);};
+`);
+  const env={};for(const key of ['PATH','Path','SYSTEMROOT','SystemRoot','COMSPEC','ComSpec','USERPROFILE','APPDATA','LOCALAPPDATA','TEMP','TMP','PATHEXT','PROCESSOR_ARCHITECTURE'])if(process.env[key])env[key]=process.env[key];
+  Object.assign(env,{NODE_ENV:'development',NEXT_TELEMETRY_DISABLED:'1',NODE_OPTIONS:`--require "${preload.replaceAll('\\','/')}"`,NEXTAUTH_URL:base,NEXTAUTH_SECRET:'synthetic-local-browser-secret-no-real-account'});
+  dev=spawn(process.execPath,[require.resolve('next/dist/bin/next'),'dev','--hostname','127.0.0.1','--port',parsed.port],{cwd:process.cwd(),env,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  dev.stdout.on('data',b=>{devOutput+=b;});dev.stderr.on('data',b=>{devOutput+=b;});
+  for(let i=0;i<150;i++){if(dev.exitCode!==null)throw Error('Local server stopped: '+devOutput.slice(-3000));try{const r=await fetch(base);if(r.ok)return;}catch{}await new Promise(r=>setTimeout(r,400));}
+  throw Error('Local server not ready: '+devOutput.slice(-3000));
+}
+(async()=>{
+ let role='User'; const adminWrites=[],createdRequests=[]; const evidence=[];const errors=[];
+ const names=['XLPE耐燃電纜 600V 3.5mm²×3C（黑色，戶外照明設備及管線更新工程使用）','LED路燈電源供應器 150W／全電壓 AC100–240V 防水 IP67（含原廠接頭及固定螺絲）','PVC硬質塑膠電線管 3/4吋（厚管，現場須與既有接頭規格確認）'];
+ const catalog=names.map((name,i)=>({id:'M'+(i+1),name,displayName:name,unit:i===0?'公尺':'個',vendor:i===1?'益詮':'伸泰',minQty:1,stepQty:1,requiresRemarks:i===1,tags:[],aliases:[],category:i===0?'電線電纜':'照明設備',subcategory:'工程常用材料'}));
+ const t=value=>({kind:'string',value});
+ const makeRow=(i,orderId,status='處理中')=>{const material=catalog[i%catalog.length],lineId='lin_'+require('node:crypto').randomUUID(),content={Material_ID:t(material.id),Item_Name:t(material.name),Original_Item_Name:t(''),Quantity:{kind:'number',value:23+i},Unit:t(material.unit),Vendor:t(material.vendor),Remarks:t(i===1?'高雄市維運區域：請先聯絡現場工班，交貨前確認包裝與施工位置。\n材料必須與原有接頭相容。':'')};return {lineId,orderId,orderDate:'2026-11-10 14:35:20',reqUser:'王工程',reqCompany:'高雄維運工程工班',reqRegion:'高雄',materialName:material.name,quantity:23+i,unit:material.unit,remarks:content.Remarks.value,vendor:material.vendor,status,adminNote:'',returnNote:'',draftName:status==='編輯中'?'路燈維運備料草稿':'',adminUser:'',expectedDate:'',catalogId:material.id,originalMaterialName:'',lineRef:{kind:'permanent',orderId,lineId},content,originalContent:content,mcf:'mcf:syn-'+i,activeReturnRef:'none',history:[],readState:'verified'};};
+ let rows=[...Array.from({length:8},(_,i)=>makeRow(i,'UIUX-20261110-001')),...Array.from({length:3},(_,i)=>makeRow(i,'UIUX-20261109-002','編輯中')),...Array.from({length:3},(_,i)=>makeRow(i,'UIUX-20261108-003','已送達'))];
+ const shot=async(name)=>{await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));await page.screenshot({path:path.join(artifacts,name+'.png'),fullPage:!name.startsWith('hundred-lines')});const geometry=await page.evaluate(()=>{const box=e=>{const r=e.getBoundingClientRect(),c=getComputedStyle(e);return {tag:e.tagName,cls:e.className,text:(e.innerText||'').slice(0,75),x:r.x,y:r.y,w:r.width,h:r.height,display:c.display,grid:c.gridTemplateColumns,position:c.position,overflow:c.overflow};};return {viewport:{width:innerWidth,height:innerHeight},pageWidth:document.documentElement.scrollWidth,pageHeight:document.documentElement.scrollHeight,boxes:[...document.querySelectorAll('.v2-material-line,.material-line-heading,.material-line-tools,.material-confirmation,.v2-submit-actions,.order-group-heading,.order-item,.order-card,.order-detail,.notice-banner-inner,.home-create,.bulk-bar,.order-editor,dialog[open],.search-select-popup')].filter(e=>e.getBoundingClientRect().height).map(box),overflow:[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect();return e.checkVisibility()&&r.width&&r.height&&(r.right>innerWidth+1||r.x<-1)&&getComputedStyle(e).position!=='fixed';}).slice(0,30).map(box)};});evidence.push({name,url:page.url(),...geometry});console.log('CAPTURE '+name);};
+ const goto=async(url)=>{await page.goto(base+url);await page.locator('.page-title').waitFor();await page.locator('.loading-state').first().waitFor({state:'hidden'});await page.waitForTimeout(500);};
+ try {
+  await startDev();browser=await chromium.launch({headless:true,channel:'msedge'});
+  const context=await browser.newContext({viewport:{width:1440,height:1000},serviceWorkers:'block'});
+  await context.route('**/*',async route=>{const req=route.request(),url=new URL(req.url());if(url.origin!==parsed.origin)return route.abort();if(!url.pathname.startsWith('/api/'))return route.continue();const json=body=>route.fulfill({status:200,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(url.pathname==='/api/auth/session')return json({user:{name:'王工程',email:'uiux@example.test'},expires:'2099-01-01T00:00:00Z'});if(url.pathname==='/api/me')return json({account:{email:'uiux@example.test',name:'王工程',company:'高雄維運工程工班',region:'高雄',role,crews:[{company:'高雄維運工程工班',region:'高雄'},{company:'北區工班',region:'台北'}]}});if(url.pathname==='/api/notices')return json({data:['系統測試中！請確認材料名稱、數量與交貨備註，若有異常請透過問題回報聯絡管理員。']});if(url.pathname==='/api/materials')return json({data:catalog});if(['/api/orders','/api/admin/orders'].includes(url.pathname)&&req.method()==='GET')return json({contractVersion:2,data:rows});if(url.pathname==='/api/orders/confirmation')return json({confirmations:[]});if(url.pathname==='/api/admin/edit-order'&&req.method()==='PATCH'){const body=req.postDataJSON();adminWrites.push(body);rows=rows.map(row=>{const change=body.changeSet?.changed.find(c=>c.lineRef.lineId===row.lineId);if(row.orderId!==body.orderId||!change)return row;const c=change.after;return {...row,content:c,quantity:c.Quantity.value,materialName:c.Item_Name.value,catalogId:c.Material_ID.value,vendor:c.Vendor.value,unit:c.Unit.value,remarks:c.Remarks.value,effectiveReview:'confirmed'};});return json({state:'confirmed',attemptRef:'attempt_mock',orderId:body.orderId,mapping:[],warnings:[]});}if(url.pathname==='/api/orders'&&req.method()==='POST'){const body=req.postDataJSON();createdRequests.push(body);if(body.company){const c=body.changeSet.added[0].content;rows=[{...makeRow(0,'ADMIN-DELEGATED'),reqCompany:body.company,reqRegion:'台北',content:c,quantity:c.Quantity.value,materialName:c.Item_Name.value,catalogId:c.Material_ID.value,vendor:c.Vendor.value,unit:c.Unit.value,remarks:c.Remarks.value}];return json({state:'confirmed',attemptRef:'attempt_mock',orderId:'ADMIN-DELEGATED',mapping:[],warnings:[]});}return json({state:'confirmed',attemptRef:'attempt_mock',orderId:'UIUX-20261110-001',mapping:[],warnings:[]});}return route.fulfill({status:503,body:JSON.stringify({error:'Read-only synthetic review; mutations disabled'})});});
+  page=await context.newPage();page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+
+
+  const checkFilterIcon=async()=>{
+    const input=page.locator('.search-filter-field input').first(),toggle=page.getByRole('button',{name:'進階篩選',exact:true});
+    const field=await input.boundingBox(),icon=await toggle.boundingBox();
+    assert(icon.x>=field.x&&icon.x+icon.width<=field.x+field.width+1&&icon.y>=field.y&&icon.y+icon.height<=field.y+field.height+1,'Filter icon is inside the input at its right edge');
+    assert(field.x+field.width-icon.x-icon.width<=4,'Filter is at the far right');
+    await toggle.click();await page.getByRole('region',{name:'進階篩選條件',exact:true}).waitFor();
+    await page.keyboard.press('Escape');assert.equal(await toggle.getAttribute('aria-expanded'),'false');
+    assert(await toggle.evaluate(e=>e===document.activeElement),'Escape restores trigger focus');
+  };
+  // Shared reading surfaces: verify both roles, complete materials and narrow screens.
+  for (const readingRole of ['User','Admin']) {
+    role=readingRole;
+    for (const width of [1440,768,390,320]) {
+      await page.setViewportSize({width,height:900});
+      await goto('/');assert.equal(await page.locator('.work-queue').count(),1);await shot('reading-home-'+role+'-'+width);
+      if(role==='User') {
+        await goto('/dashboard?tab=archive');await checkFilterIcon();assert.equal(await page.locator('.order-card').count(),1);await shot('reading-history-'+width);
+        await goto('/dashboard/detail?order=UIUX-20261110-001&returnTo=%2Fdashboard');
+        assert.equal(await page.locator('.request-materials > li').count(),8);
+        assert(!(await page.locator('.request-materials').innerText()).includes('伸泰'));
+        const order=await page.locator('.detail-content').evaluate(e=>[...e.children].map(x=>x.className));
+        assert(order.indexOf('request-status')<order.indexOf('request-section'));
+        assert.equal(new Set(await page.locator('.request-progress-stages > li').evaluateAll(es=>es.map(e=>Math.round(e.getBoundingClientRect().top)))).size,1,'Progress stages stay on one horizontal row');await shot('reading-detail-'+width);
+      } else {
+        await goto('/admin?order=UIUX-20261110-001');await checkFilterIcon();
+        assert.equal(await page.locator('.admin-case-details[open] .request-materials > li').count(),8);
+        assert((await page.locator('.admin-case-details[open] .request-material-admin').first().innerText()).includes('伸泰'));
+        assert(await page.locator('.admin-case-details > summary').first().evaluate(e=>parseFloat(getComputedStyle(e).paddingLeft)>=16),'Disclosure has a card inset');await shot('reading-review-'+width);
       }
-      if (url.pathname === '/api/admin/orders') return json({ data: state.orders.filter((row) => row.status !== '編輯中') });
-      if (url.pathname === '/api/orders' && route.request().method() === 'GET') return json({ data: state.orders.filter((row) => row.reqCompany === '甲工班') });
-      if (url.pathname === '/api/admin/update-status') {
-        const body = route.request().postDataJSON();
-        state.orders.forEach((row) => { if (body.orderIds.includes(row.orderId)) { row.status = body.status; row.adminNote = body.targetLineIds?.includes(row.lineId) ? body.adminNote : ''; row.returnNote = body.status === '處理中' && !body.targetLineIds ? body.adminNote : ''; } });
-        return json({ orderIds: body.orderIds, status: 'success' });
-      }
-      if (url.pathname === '/api/admin/edit-order') {
-        const body = route.request().postDataJSON();
-        const originals = state.orders.filter((row) => row.orderId === body.orderId);
-        state.orders = state.orders.filter((row) => row.orderId !== body.orderId).concat(body.items.map((item) => ({ ...(originals.find((row) => row.lineId === item.lineId) || originals[0]), ...item })));
-        return json({ status: 'success', orderId: body.orderId });
-      }
-      if (url.pathname === '/api/admin/quotation') return json({text:'賀冠詢價需求\n工班：甲工班\n1. S：1 式'});
-      if (url.pathname === '/api/admin/export') {
-        state.exportBody = route.request().postDataJSON();
-        if (state.failExport) { state.failExport = false; return json({ error: '模擬狀態衝突，請確認後再試。' }, 409); }
-        const advancedIds = [];
-        return json({ status: 'success', orderIds: state.exportBody.orderIds, advancedIds, reexportedIds: state.exportBody.orderIds.filter((id) => !advancedIds.includes(id)), archiveName: '廠商報表.zip', archiveContent: Buffer.from('mock archive').toString('base64'), files: ['伸泰', '益詮'].map((vendor) => ({ vendor, filename: `${vendor}.xlsx`, fileContent: Buffer.from('mock report').toString('base64') })) });
-      }
-      return json({ error: 'Unexpected mocked API request' }, 404);
-    });
-    page = await context.newPage();
-    page.on('dialog', (dialog) => dialog.accept());
-    page.on('pageerror', (error) => errors.push(error.message));
-    await page.goto(base + '/');
-    await page.getByRole('heading', { name: '管理工作總覽' }).waitFor();
-    await page.locator('.notice-banner-inner').waitFor();
-    assert.equal(Math.round((await page.locator('.notice-banner-inner').boundingBox()).x), Math.round((await page.locator('.app-topbar-inner').boundingBox()).x));
-    const bannerText=await page.locator('.notice-banner-inner > div').boundingBox();
-    const bannerClose=await page.getByRole('button',{name:'關閉公告',exact:true}).boundingBox();
-    assert(Math.abs(bannerText.y+bannerText.height/2-bannerClose.y-bannerClose.height/2)<2);
-    assert((await page.locator('.notice-banner').boundingBox()).height<=50);
-    const beforeAuditRetry=JSON.stringify(state.orders);
-    await page.getByRole('button', { name: '稽核紀錄維護', exact: true }).click();
-    await page.getByRole('button',{name:'補寫待處理稽核紀錄',exact:true}).click();
-    await page.getByRole('status').filter({hasText:'已完成本次待處理稽核補寫'}).waitFor();
-    assert.equal(state.auditRetries,1);assert.equal(JSON.stringify(state.orders),beforeAuditRetry);
-    assert.equal(await page.locator('.skip-link').evaluate(el=>getComputedStyle(el).clipPath),'inset(50%)');
-    await page.locator('.skip-link').focus();
-    assert.equal(await page.locator('.skip-link').evaluate(el=>getComputedStyle(el).clipPath),'none');
-    await page.locator('.page-title').click();
-    await page.getByRole('button',{name:'開啟主要選單'}).click();
-    await page.getByRole('region',{name:'管理作業',exact:true}).waitFor();
-    await page.getByRole('region',{name:'工班作業',exact:true}).waitFor();
-    await page.getByRole('button',{name:'關閉主要選單'}).click();
-    // Revisit the cached review route through each home card without a reload.
-    for (const [label, status] of [['審核中', '審核中'], ['審核完畢', '審核完畢'], ['待審核需求', '待審核'], ['準備出貨', '準備出貨']]) {
-      await page.locator('.overview-queue').getByRole('link').filter({ hasText: label }).click();
-      await page.waitForFunction((status) => {
-        const label = [...document.querySelectorAll('label')].find(el => el.querySelector('.form-label')?.textContent === '需求狀態');
-        return label?.querySelector('select')?.value === status;
-      }, status);
-      assert.equal(await page.locator('.order-item .quantity-value').count(), 0);
-      await page.getByRole('link', { name: '管理工作總覽', exact: true }).click();
-      await page.locator('.overview-queue a').first().waitFor();
+      await goto('/analytics');await checkFilterIcon();await page.getByRole('button',{name:'期間訂單明細',exact:true}).click();
+      assert.equal(await page.locator('[data-analytics-order]').count(),2);
+      await page.locator('.analytics-material-details > summary').first().click();
+      assert.equal(await page.locator('.analytics-material-details[open] .request-materials > li').count(),8);
+      await shot('reading-analytics-'+role+'-'+width);
     }
-    await page.screenshot({ path: path.join(artifacts, 'overview-cards-desktop.png'), fullPage: true });
-    await page.setViewportSize({ width: 390, height: 844 });
-    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-    await page.screenshot({ path: path.join(artifacts, 'overview-cards-mobile.png'), fullPage: true });
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByRole('link', { name: '前往材料審核中心' }).click();
-    await page.getByRole('combobox', {name:'需求狀態',exact:true}).waitFor();
-    const reviewStatusOptions = await page.getByRole('combobox', {name:'需求狀態',exact:true}).locator('option').allTextContents();
-    for (const width of [1652,1024,640]) {
-      await page.setViewportSize({width,height:1000});
-      if (!(await page.locator('.date-range-fields:visible').count())) await page.locator('.filter-panel:visible summary').click();
-      const range=page.locator('.date-range-fields:visible');
-      const from=await range.locator('input').first().boundingBox(), to=await range.locator('input').last().boundingBox();
-      assert(Math.abs(from.y-to.y)<2,'date fields stay beside each other');
-      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-    }
-    await page.setViewportSize({width:1440,height:1000});
-    assert.deepEqual(await page.locator('.filter-grid .form-label').allTextContents().then(labels=>labels.slice(0,2)), ['地區','工班']);
-    await page.locator('[data-order-id="ORD-20261026-9212"] .order-date').waitFor();
-    const checkbox = page.getByRole('checkbox', { name: '選取整張需求單 ORD-20261026-9212，共 4 筆材料', exact: true });
-    await checkbox.check();
-    await page.getByText('已選取 1 張單', { exact: true }).waitFor();
-    assert.equal(await page.locator('[data-order-id="ORD-20261026-9212"]').locator('.order-item').count(), 4);
-    await page.screenshot({ path: path.join(artifacts, 'admin-desktop.png'), fullPage: true });
-    await page.getByRole('button', { name: '退回修改', exact: true }).click();
-    await page.locator('dialog[open] textarea').fill('只需修改第二筆材料');
-    await page.getByRole('radio', { name: '只顯示在指定材料', exact: true }).check();
-    await page.locator('.return-materials input[type=checkbox]').nth(1).check();
-    await page.getByRole('button', { name: '確認更新', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '退回待修改' }).waitFor();
-    await page.locator('[data-order-id="ORD-20261026-9212"]').locator('.status-returned').filter({ hasText: '退回待修改' }).waitFor();
-    assert.equal(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212' && row.adminNote).length, 1);
-    await page.getByRole('button', { name: '編輯需求單 ORD-20261026-9212', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('dialog[open] input[type=number]')?.min === '100');
-    assert.equal(await page.getByRole('spinbutton', { name: '第 1 筆數量', exact: true }).getAttribute('min'), '100');
-    assert.equal(await page.getByRole('spinbutton', { name: '第 1 筆數量', exact: true }).getAttribute('step'), '100');
-    await page.getByRole('spinbutton', { name: '第 1 筆數量', exact: true }).fill('101');
-    await page.getByRole('button', { name: '儲存單據', exact: true }).click();
-    await page.locator('dialog[open] .field-error').filter({ hasText: '倍數' }).waitFor();
-    await page.getByRole('spinbutton', { name: '第 1 筆數量', exact: true }).fill('200');
-    await page.getByLabel('第 1 筆供應廠商',{exact:true}).selectOption('益詮');
-    await page.getByLabel('第 3 筆供應廠商',{exact:true}).selectOption('賀冠');
-    for (const width of [390,1440]) { await page.setViewportSize({width,height:1000}); assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)); if(width===1440) { const material=await page.locator('.editor-material').first().boundingBox(), quantity=await page.locator('.editor-quantity').first().boundingBox(); assert(Math.abs(material.y-quantity.y)<3,'desktop material and quantity align'); } await page.screenshot({path:path.join(artifacts,`procurement-editor-${width}.png`),fullPage:true}); }
-    await page.getByRole('button', { name: '儲存單據', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '管理員修改已儲存' }).waitFor();
-    assert.equal(state.orders.find((row) => row.orderId === 'ORD-20261026-9212').quantity, 200);
-    await checkbox.check();
-    await page.getByRole('button', { name: '開始審核', exact: true }).click();
-    await page.getByRole('button', { name: '確認更新', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '已更新 1 張需求單' }).waitFor();
-    assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '審核中'));
-    assert.equal(await page.locator('label').filter({hasText:'需求狀態'}).locator('select').inputValue(),'審核中');
-    await checkbox.check();
-    await page.getByRole('button',{name:'賀冠詢價',exact:true}).click();
-    await page.getByRole('heading',{name:'賀冠詢價內容',exact:true}).waitFor();
-    await page.getByRole('textbox',{name:'詢價文字',exact:true}).fill('賀冠詢價需求\n工班：甲工班\n1. S：1 式\n備註：請報價');
-    await page.screenshot({path:path.join(artifacts,'quotation-desktop.png'),fullPage:true});
-    await page.getByRole('button',{name:'關閉',exact:true}).click();
-    await page.getByLabel('工班', { exact: true }).selectOption('甲工班');
-    await page.getByRole('button', { name: '匯出篩選範圍', exact: true }).click();
-    await page.getByRole('button', { name: '確認匯出', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: '模擬狀態衝突' }).waitFor();
-    assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '審核中'));
-    await page.getByRole('button', { name: '確認匯出', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '已匯出 2 張需求單，需求狀態維持不變' }).waitFor();
-    assert.deepEqual([...state.exportBody.orderIds].sort(), ['ORD-20261026-9212', 'ORD-REVIEW'].sort());
-    assert.equal(state.orders.find((row) => row.orderId === 'ORD-OTHER').status, '審核中');
-    assert.equal(await page.getByRole('button', { name: '編輯需求單 ORD-20261026-9212', exact: true }).count(), 1);
-    await checkbox.check();
-    await page.getByRole('button', { name: '匯出勾選單據', exact: true }).click();
-    await page.getByRole('button', { name: '確認匯出', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '已匯出 1 張需求單，需求狀態維持不變' }).waitFor();
-    assert.equal(state.exportBody.scope, 'selected');
-    assert(state.orders.filter((row) => row.orderId === 'ORD-20261026-9212').every((row) => row.status === '審核中'));
-    await checkbox.check();
-    await page.getByRole('button',{name:'完成審核',exact:true}).click();
-    await page.getByRole('button',{name:'確認更新',exact:true}).click();
-    await page.waitForFunction(()=>[...document.querySelectorAll('label')].find(el=>el.querySelector('.form-label')?.textContent==='需求狀態')?.querySelector('select')?.value==='審核完畢');
-    await checkbox.check();
-    await page.getByRole('button',{name:'設為準備出貨',exact:true}).click();
-    await page.getByRole('button',{name:'確認更新',exact:true}).click();
-    await page.getByRole('status').filter({hasText:'已更新 1 張需求單為「準備出貨」'}).waitFor();
-    assert.equal(await page.locator('label').filter({hasText:'需求狀態'}).locator('select').inputValue(),'準備出貨');
-    assert.equal(await page.getByRole('button', { name: '下載伸泰報表', exact: true }).count(), 1);
+  }
+  const savedAdminRows=structuredClone(rows),savedMinimum=catalog[0].minQty,savedStep=catalog[0].stepQty;
+  role='Admin';catalog[0].minQty=100;catalog[0].stepQty=100;
+  for(const status of ['審核完畢','準備出貨','已送達']) {
+    rows=[{...makeRow(0,'ADMIN-LATE-EDIT',status),quantity:100}];rows[0].content.Quantity={kind:'number',value:100};
+    await page.setViewportSize({width:390,height:900});await goto('/admin?order=ADMIN-LATE-EDIT');
+    await page.getByRole('button',{name:'編輯需求單 ADMIN-LATE-EDIT',exact:true}).click();
+    const editor=page.locator('.order-editor[open]');await editor.waitFor();
+    const picker=editor.locator('.admin-material-picker').first();await picker.getByRole('combobox',{name:'材料分類',exact:true}).selectOption('電線電纜');
+    await picker.getByRole('combobox',{name:'搜尋並選擇材料',exact:true}).fill('XLPE');await picker.getByRole('listbox').getByRole('option').first().click();
+    const quantity=editor.getByRole('spinbutton',{name:'第 1 筆數量',exact:true});await quantity.fill('150');await quantity.press('Tab');
+    assert((await editor.locator('.line-issues').innerText()).includes('倍數'));
+    await quantity.fill('200');await quantity.press('Tab');await editor.locator('.material-confirmation input').check();
+    await shot('admin-edit-stage-'+status);await editor.getByRole('button',{name:'下一步：確認需求',exact:true}).click();
+    await editor.getByRole('button',{name:'確認儲存修改',exact:true}).click();await editor.waitFor({state:'hidden'});
+    assert.equal(rows[0].status,status);assert.equal(rows[0].quantity,200);assert.equal(adminWrites.at(-1).intent,'amend-order');
+  }
+  rows=savedAdminRows;
+  await goto('/request');await page.getByRole('combobox',{name:'代下單工班',exact:true}).selectOption('北區工班');
+  await page.getByRole('combobox',{name:'搜尋並選擇材料',exact:true}).fill('XLPE');await page.getByRole('listbox').getByRole('option').first().click();
+  await page.getByRole('button',{name:'加入待送出清單',exact:true}).click();await page.getByRole('button',{name:'確認清單並送出（1）',exact:true}).click();
+  assert((await page.locator('.crew-final-review').innerText()).includes('北區工班'));await shot('admin-delegated-order-390');
+  await page.getByRole('button',{name:'確認送出',exact:true}).click();await page.locator('.request-complete').waitFor();
+  assert.equal(createdRequests.at(-1).company,'北區工班');await page.getByRole('link',{name:'查看需求',exact:true}).click();await page.waitForURL(url=>url.pathname==='/dashboard/detail');await page.locator('.order-detail').waitFor();
+  catalog[0].minQty=savedMinimum;catalog[0].stepQty=savedStep;rows=savedAdminRows;
+  role='User';
+  const originalRows=structuredClone(rows);
+  await page.setViewportSize({width:390,height:900});
+  for(const status of ['處理中','審核完畢','準備出貨','已送達']) {
+    rows=originalRows.filter(r=>r.orderId==='UIUX-20261110-001').map(r=>({...r,status}));
+    await goto('/dashboard/detail?order=UIUX-20261110-001&returnTo=%2Fdashboard');
+    assert.deepEqual(await page.locator('.request-progress-stages strong').allTextContents(),['待審核','審核完畢','準備出貨','已送達']);
+    assert.equal(await page.locator('.request-progress-stages [aria-current=step] strong').innerText(),status==='處理中'?'待審核':status);
+  }
+  rows=originalRows;
+  await goto('/dashboard');await page.getByRole('button',{name:'進階篩選',exact:true}).click();
+  await page.getByLabel('開始日期',{exact:true}).fill('2026-01-01');assert.equal(new URL(page.url()).searchParams.get('start'),'2026-01-01');
+  await page.getByRole('button',{name:'進階篩選',exact:true}).click();assert.equal(await page.locator('.filter-active-dot').count(),1);
+  await goto('/');const notice=page.getByRole('complementary',{name:'系統公告',exact:true});
+  await notice.waitFor();assert((await notice.innerText()).includes('交貨備註'));assert.equal(await notice.locator('.notice-preview').count(),0);
+  await page.getByRole('button',{name:'關閉公告',exact:true}).click();await goto('/analytics');assert.equal(await page.locator('.notice-banner').count(),0);
+  await page.locator('.system-tools > summary').click();await page.getByRole('button',{name:'查看系統公告',exact:true}).click();await notice.waitFor();await page.getByRole('button',{name:'關閉公告',exact:true}).click();
 
-    const assertNoOverflow = async () => assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'page has horizontal overflow');
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.waitForFunction(() => {
-      const heading = document.querySelector('.order-group-heading');
-      return heading && getComputedStyle(heading).display === 'grid';
-    });
-    await page.screenshot({ path: path.join(artifacts, 'admin-mobile.png'), fullPage: true });
-    await assertNoOverflow();
-    await page.getByRole('button', { name: '開啟主要選單' }).click();
-    await page.getByRole('link', { name: '趨勢分析儀表板', exact: true }).click();
-    await page.getByRole('heading', { name: '各工班材料趨勢分析儀表板' }).waitFor();
-    if (!(await page.getByRole('combobox', {name:'需求狀態',exact:true}).isVisible())) await page.locator('.analytics-frame .filter-panel summary').click();
-    await page.getByRole('combobox', {name:'需求狀態',exact:true}).waitFor();
-    assert.deepEqual(await page.getByRole('combobox', {name:'需求狀態',exact:true}).locator('option').allTextContents(),reviewStatusOptions);
-    assert.deepEqual(await page.locator('.filter-grid .form-label').allTextContents().then(labels=>labels.slice(0,2)), ['地區','工班']);
-    if (!(await page.getByRole('combobox', {name:'地區',exact:true}).isVisible())) await page.locator('.analytics-frame .filter-panel summary').click();
-    await page.getByRole('combobox', {name:'地區',exact:true}).selectOption('高雄');
-    await page.getByRole('combobox', {name:'需求狀態',exact:true}).selectOption('審核中');
-    await page.getByRole('button', {name:'清除篩選',exact:true}).click();
-    await page.getByRole('button', {name:'工班明細',exact:true}).click();
-    const companyRow=page.locator('#company-statistics tbody tr').first();
-    assert.equal(await companyRow.locator('.data-link').evaluate(el=>getComputedStyle(el).fontSize), await companyRow.locator('td').first().evaluate(el=>getComputedStyle(el).fontSize));
-    await page.setViewportSize({width:1440,height:1000});
-    await page.screenshot({path:path.join(artifacts,'company-summary-desktop.png'),fullPage:true});
-    await page.setViewportSize({width:390,height:844});
-    await page.getByRole('button', { name: '材料總覽', exact: true }).click();
-    await page.getByRole('heading', { name: '材料需求明細統計' }).waitFor();
-    await assertNoOverflow();
-    await page.screenshot({ path: path.join(artifacts, 'analytics-admin-mobile.png'), fullPage: true });
-    await page.getByRole('button',{name:'期間訂單明細',exact:true}).click();
-    assert.equal(await page.locator('#period-orders .analytics-order-company').count()>0,true);
-
-    state.role = 'User';
-    state.orders.push({ ...makeRow('RETURNED-1', '需修改材料', 1, '處理中'), returnNote: '請確認材料規格' }, makeRow('PENDING-1', '新送出材料', 1, '處理中'));
-    for (let index = 0; index < 25; index++) state.orders.push(makeRow(`PAGE-${index}`, `分頁材料 ${index}`, 1, '已送達'));
-    await page.goto(base + '/');
-    await page.getByRole('heading', { name: '甲工班材料趨勢分析儀表板' }).waitFor();
-    await page.getByRole('button', { name: '材料總覽', exact: true }).click();
-    await page.getByRole('heading', { name: '材料需求明細統計' }).waitFor();
-    await page.locator('#material-statistics .data-link').first().click();
-    await page.locator('.trend-chart svg').first().waitFor();
-    await page.screenshot({ path: path.join(artifacts, 'material-trend-mobile.png'), fullPage: true, animations: 'disabled' });
-    assert.equal(await page.locator('.trend-chart polyline').count() > 0, true);
-    await page.getByText('查看逐月數據與訂單', { exact: true }).first().click();
-    await page.locator('.month-grid button').first().click();
-    await page.locator('#trend-orders-title').waitFor();
-    assert.equal(await page.locator('.trend-order-table .order-date').count() > 0, true);
-    await page.locator('.filter-panel summary').click();
-    await page.getByRole('button', { name: '清除篩選', exact: true }).click();
-    assert.equal(await page.getByText('乙工班', { exact: true }).count(), 0);
-    await page.screenshot({ path: path.join(artifacts, 'analytics-user-mobile.png'), fullPage: true });
-    await assertNoOverflow();
-    await page.getByRole('button', { name: '材料總覽', exact: true }).click();
-    const materialPages = page.getByRole('navigation', { name: '材料統計分頁', exact: true });
-    await materialPages.getByRole('button', { name: '下一頁', exact: true }).click();
-    assert.equal(await materialPages.getByRole('combobox').inputValue(), '2');
-    await page.locator('#material-statistics .data-link').first().click();
-    await page.getByRole('button', {name:'返回材料總覽',exact:true}).click();
-    await page.locator('#material-statistics').waitFor();
-    assert.equal(await materialPages.getByRole('combobox').inputValue(), '2');
-    assert.equal(await page.locator('.analytics-material-filter input').inputValue(), '');
-    await page.getByRole('button', { name: '開啟主要選單' }).click();
-    assert.equal(await page.getByRole('link', { name: '材料審核中心', exact: true }).count(), 0);
-    await page.getByRole('link', { name: '歷史需求單', exact: true }).click();
-    await page.getByRole('tab', { name: /^進行中/ }).waitFor();
-    assert.equal(await page.getByRole('tab', { name: /^進行中/ }).getAttribute('aria-selected'), 'true');
-    assert.equal(await page.locator('[data-order-id="PAGE-0"] .order-date').count(), 0);
-    await page.locator('[data-order-id="RETURNED-1"] .order-date').waitFor();
-    assert.equal(await page.locator('.order-group').first().getAttribute('data-order-id'), 'RETURNED-1');
-    await page.getByRole('button', { name: /^退回待修改 1$/ }).click();
-    assert.equal(await page.locator('.order-group').count(), 1);
-    await page.getByRole('button', { name: /^待審核 1$/ }).click();
-    await page.locator('[data-order-id="PENDING-1"] .order-date').waitFor();
-    assert.equal(await page.locator('[data-order-id="RETURNED-1"] .order-date').count(), 0);
-    await page.screenshot({ path: path.join(artifacts, 'history-active-mobile.png'), fullPage: true });
-    await assertNoOverflow();
-    await page.getByRole('tab', { name: /^準備出貨／已送達/ }).click();
-    const historyPages = page.getByRole('navigation', { name: '歷史需求單分頁', exact: true });
-    await historyPages.getByRole('button', { name: '下一頁', exact: true }).click();
-    assert.equal(await historyPages.getByRole('combobox').inputValue(), '2');
-    assert.equal(await page.locator('.order-group').count(), 10);
-    await page.getByRole('tab', { name: '草稿（1）' }).click();
-    await page.locator('[data-order-id="DRAFT-1"] .order-date').waitFor();
-    assert.equal(await page.locator('[data-order-id="ORD-REVIEW"] .order-date').count(), 0);
-    await assertNoOverflow();
-    await page.goto(base + '/request');
-    await page.getByRole('heading', { name: '建立材料需求' }).waitFor();
-    const materialSearch = page.getByRole('combobox', { name: '搜尋並選擇材料', exact: true });
-    await materialSearch.click();
-    assert.equal(await page.getByRole('listbox', { name: '搜尋並選擇材料搜尋結果' }).getByRole('option').count(), 8);
-    await materialSearch.press('Escape');
-    await materialSearch.click();
-    assert.equal(await materialSearch.getAttribute('aria-expanded'), 'true');
-    for (let index = 0; index < 7; index++) await materialSearch.press('ArrowDown');
-    assert(await page.getByRole('listbox', { name: '搜尋並選擇材料搜尋結果' }).evaluate((list) => { const active = document.getElementById(document.querySelector('[role=combobox][aria-activedescendant]').getAttribute('aria-activedescendant')); return active.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1; }));
-    await materialSearch.fill('電線');
-    await page.getByRole('listbox', { name: '搜尋並選擇材料搜尋結果' }).getByRole('button').first().click();
-    assert((await page.locator('.quantity-stepper').boundingBox()).width <= 240);
-    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    await page.locator('.mobile-cart-bar').getByRole('button', { name: '確認清單並送出（1）', exact: true }).click();
-    await page.getByRole('heading', { name: '確認待送出清單' }).waitFor();
-    await assertNoOverflow();
-    await page.screenshot({ path: path.join(artifacts, 'request-mobile.png'), fullPage: true });
-    await page.setViewportSize({ width: 1652, height: 936 });
-    await page.getByRole('button', { name: '新增材料', exact: true }).click();
-    assert((await page.locator('.request-frame').boundingBox()).width <= 1080);
-    assert.equal(await page.locator('.quantity-stepper').count(), 0);
-    await page.screenshot({ path: path.join(artifacts, 'request-desktop.png'), fullPage: true });
-    await page.getByRole('button', { name: '開啟主要選單' }).click();
-    await page.getByRole('link', { name: '歷史需求單', exact: true }).click();
-    await page.getByRole('heading', { name: '尚有未儲存的內容', exact: true }).waitFor();
-    await page.getByRole('button', { name: '繼續編輯', exact: true }).click();
-    assert.equal(await page.locator('.request-cart li').count(), 1);
-    await page.getByRole('link', { name: '歷史需求單', exact: true }).click();
-    await page.getByRole('button', { name: '捨棄修改並離開', exact: true }).click();
-    await page.getByRole('heading', { name: '歷史需求單', exact: true }).waitFor();
-    await page.goto(base + '/request');
-    await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('電線電纜');
-    assert.equal(await page.getByRole('combobox', { name: '材料廠商', exact: true }).count(), 0);
-    await materialSearch.fill('1.25黑線');
-    const results = page.getByRole('listbox', { name: '搜尋並選擇材料搜尋結果' });
-    await results.getByRole('option').first().waitFor();
-    assert(!(await results.innerText()).includes('伸泰'));
-    await materialSearch.press('Enter');
-    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    assert.equal(await page.getByRole('button', { name: '常用材料', exact: true }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: '最近選用', exact: true }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: '加入常用', exact: true }).count(), 0);
-    await page.reload();
-    await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('電線電纜');
-    await materialSearch.fill('1.25黑線');
-    await results.getByRole('option').first().waitFor();
-    await materialSearch.press('Enter');
-    await page.getByRole('button', { name: '清除篩選', exact: true }).click();
-    await page.getByRole('combobox', { name: '材料分類', exact: true }).selectOption('綜合材料');
-    await materialSearch.fill('混合');
-    await results.getByRole('option').first().waitFor();
-    await materialSearch.press('Enter');
-    assert.equal(await page.getByRole('textbox', { name: '附加備註', exact: true }).getAttribute('aria-required'), 'true');
-    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: '混合材料' }).waitFor();
-    await page.getByRole('textbox', { name: '附加備註', exact: true }).fill('LED35W、75W各3箱；灰色電纜10卷；PB5上蓋30只。');
-    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: '已加入' }).waitFor();
-    await page.setViewportSize({ width: 390, height: 844 });
-    await materialSearch.fill('混合');
-    await materialSearch.press('Enter');
-    await page.getByText('查看混合材料完整內容', { exact: true }).click();
-    await assertNoOverflow();
-    await page.screenshot({ path: path.join(artifacts, 'catalog-mobile.png'), fullPage: true, animations: 'disabled' });
-    await page.setViewportSize({ width: 1652, height: 1000 });
-    await page.screenshot({ path: path.join(artifacts, 'catalog-desktop.png'), fullPage: true, animations: 'disabled' });
-    // Existing order editing must expose only actions allowed by the current state machine.
-    await page.goto(base + '/request?loadOrderId=PENDING-1&action=edit');
-    await page.getByRole('heading', { name: '確認待送出清單', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: '儲存草稿', exact: true }).count(), 0);
-    assert.equal(new URL(page.url()).searchParams.get('loadOrderId'), 'PENDING-1');
-    await page.reload();
-    await page.getByRole('heading', { name: '確認待送出清單', exact: true }).waitFor();
-    assert.equal(await page.locator('.cart-line').count(), 1);
-
-    // Long identifiers must remain readable inside cards, rather than merely hiding page overflow.
-    state.orders.push(makeRow('LONG-RWD', 'A'.repeat(180), 1, '審核中'));
-    await page.goto(base + '/dashboard');
-    await page.locator('[data-order-id="LONG-RWD"] .order-date').waitFor();
-    const longOrder = page.locator('[data-order-id="LONG-RWD"]');
-    for (const width of [320, 390, 768, 1024, 1440]) {
-      await page.setViewportSize({ width, height: 900 }); await assertNoOverflow();
-      assert(await longOrder.locator('.order-item > div').first().evaluate((element) => element.scrollWidth <= element.clientWidth + 1), `long material clipped at ${width}px`);
-    }
-    await page.getByRole('tab', { name: /^進行中/ }).focus();
-    await page.getByRole('tab', { name: /^進行中/ }).press('ArrowRight');
-    assert.equal(await page.getByRole('tab', { name: /^草稿/ }).getAttribute('aria-selected'), 'true');
-
-    state.role = 'Admin';
-    await page.goto(base + '/admin');
-    await page.getByRole('heading', { name: '材料審核中心', exact: true }).waitFor();
-    await page.setViewportSize({ width: 320, height: 844 });
-    await checkbox.check();
-    await page.locator('.mobile-review-actions').waitFor({ state: 'visible' });
-    await page.locator('.mobile-review-more summary').click();
-    await page.getByRole('button', { name: '匯出勾選單據', exact: true }).click();
-    await page.getByRole('heading', { name: '確認匯出報表', exact: true }).waitFor();
-    await assertNoOverflow();
-    await page.getByRole('button', { name: '取消', exact: true }).click();
-    await page.locator('.page-title').click();
-    await page.screenshot({ path: path.join(artifacts, 'review-selected-320.png'), fullPage: true, animations: 'disabled' });
-    assert.deepEqual(await page.evaluate(() => ({ blue: getComputedStyle(document.documentElement).getPropertyValue('--delta-blue').trim(), green: getComputedStyle(document.documentElement).getPropertyValue('--delta-green').trim() })), { blue: '#0077c8', green: '#2e6b4f' });
-    await page.goto(base + '/request');
-    await materialSearch.fill('電線');
-    await materialSearch.press('Enter');
-    await page.getByLabel('需求數量', { exact: false }).fill('101');
-    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    assert.equal(await page.locator('#request-quantity').getAttribute('aria-invalid'), 'true');
-    assert(await page.locator('#request-quantity').evaluate((element) => element === document.activeElement));
-    await page.locator('#request-quantity').fill('100');
-    await page.getByRole('button', { name: '加入待送出清單', exact: true }).click();
-    await page.locator('.mobile-cart-bar button').click();
-    await page.getByRole('button', { name: '儲存草稿', exact: true }).click();
-    assert(await page.locator('#draft-name').evaluate((element) => element === document.activeElement));
-    await page.locator('#draft-name').fill('工班共用 RWD 驗證');
-    await page.getByRole('button', { name: '儲存草稿', exact: true }).click();
-    await page.getByRole('heading', { name: '草稿已儲存', exact: true }).waitFor();
-    await page.getByRole('button', { name: '查看歷史需求單', exact: true }).click();
-    await page.getByRole('heading', { name: '歷史需求單', exact: true }).waitFor();
-    assert.equal(await page.getByRole('dialog', { name: '尚有未儲存的內容' }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: '回報問題', exact: true }).evaluate((button) => getComputedStyle(button).position), 'static');
-    await page.getByRole('button', { name: '回報問題', exact: true }).click();
-    await page.getByRole('dialog', { name: '回報系統問題', exact: true }).waitFor();
-    await page.getByRole('button', { name: '送出回報', exact: true }).click();
-    assert(await page.getByRole('textbox', { name: '問題描述', exact: true }).evaluate((element) => element === document.activeElement));
-    await page.getByRole('textbox', { name: '問題描述', exact: true }).fill('測試回報成功提示會自動收起');
-    await page.getByRole('button', { name: '送出回報', exact: true }).click();
-    await page.getByText('問題回報已送出。', { exact: true }).waitFor();
-    await page.getByText('問題回報已送出。', { exact: true }).waitFor({ state: 'hidden', timeout: 9000 });
-    await page.getByRole('dialog', { name: '回報系統問題', exact: true }).waitFor({ state: 'hidden' });
-    state.role = 'User';
-    state.orders = [];
-    await page.setViewportSize({width:390,height:844});
-    const trendValues = [80,0,50,0,50,50,50,30,30,50,30,30,50,50,100,125];
-    trendValues.forEach((qty,i) => { if(qty) { const date = new Date(2025,6+i,1); state.orders.push({...makeRow('TREND-'+i, '點滅器220V/6A', qty, '已送達'),unit:'個',orderDate:date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-12 09:00:00'}); } });
-    state.orders.push({...makeRow('TREND-15','1.25mm2 -1C 絞線/綠色',20000,'已送達'),orderDate:'2026-10-12 09:00:00'});
-    await page.goto(base + '/');
-    await page.locator('.trend-chart svg').first().waitFor();
-    await page.getByRole('button', { name: '材料總覽', exact: true }).click();
-    await page.getByRole('button', { name: '點滅器220V/6A', exact: true }).click();
-    await page.waitForFunction(() => document.querySelectorAll('.trend-chart rect[role=button]').length === 6);
-    await assertNoOverflow();
-    await page.locator('.page-title').click(); await page.mouse.move(0,0);
-    assert.equal(await page.locator('.trend-period').evaluate(el=>getComputedStyle(el).whiteSpace),'nowrap');
-    assert.equal(await page.locator('.analytics-drill-navigation').evaluate(el=>getComputedStyle(el).position),'static');
-    assert((await page.locator('.analytics-order-materials li').first().textContent()).includes('：125 個'));
-    await page.screenshot({path:path.join(artifacts,'trend-A-mobile.png'),fullPage:true});
-    await page.getByRole('button', {name:/2026-09：100/}).click();
-    await page.getByRole('heading', {name:'2026 年 09 月的需求單',exact:true}).waitFor();
-    assert.equal(await page.locator('#trend-orders .order-date').first().textContent(),'2026-09-12 09:00:00');
-    await page.getByRole('button', {name:'查看較早月份',exact:true}).click();
-    assert.equal(await page.locator('.trend-chart rect[role=button]').first().getAttribute('aria-label').then(x=>x.startsWith('2025-11')),true);
-    await page.setViewportSize({width:1440,height:1000});
-    await page.waitForFunction(() => document.querySelectorAll('.trend-chart rect[role=button]').length === 16);
-    assert.equal(await page.getByRole('button',{name:'查看較早月份',exact:true}).count(),0);
-    assert.equal(await page.getByRole('button',{name:'查看較晚月份',exact:true}).count(),0);
-    await page.getByText('已顯示全部 16 個月',{exact:true}).waitFor();
-    await page.getByRole('button', {name:/2026-10：125/}).click();
-    await page.locator('.page-title').click(); await page.mouse.move(0,0);
-    await page.screenshot({path:path.join(artifacts,'trend-A-desktop.png'),fullPage:true});
-    await assertNoOverflow();
-    await page.getByRole('button',{name:'查看整段期間訂單',exact:true}).click();
-    await page.locator('#period-orders-title').waitFor();
-    assert.equal(await page.locator('#period-orders [data-analytics-order]').count(),10);
-    assert.equal(await page.locator('#period-orders .analytics-order-company').count(),0);
-    const periodPages = page.getByRole('navigation',{name:'需求訂單分頁',exact:true});
-    await periodPages.getByRole('button',{name:'下一頁',exact:true}).click();
-    assert.equal(await page.locator('#period-orders [data-analytics-order]').count(),4);
-    await periodPages.getByRole('button',{name:'上一頁',exact:true}).click();
-    await page.locator('.page-title').click();await page.mouse.move(0,0);
-    await page.screenshot({path:path.join(artifacts,'period-orders-desktop.png'),fullPage:true});
-    for(const width of [320,390]) { await page.setViewportSize({width,height:844});await assertNoOverflow();assert(await page.locator('.analytics-order-materials').first().evaluate(el=>el.scrollWidth<=el.clientWidth+1)); }
-    await page.screenshot({path:path.join(artifacts,'period-orders-mobile.png'),fullPage:true});
-    await page.getByRole('button',{name:'返回材料趨勢',exact:true}).click();
-    await page.getByRole('heading',{name:'2026 年 10 月的需求單',exact:true}).waitFor();
-    await page.getByRole('button',{name:'返回材料總覽',exact:true}).click();
-    assert.equal(await page.locator('.analytics-material-filter input').inputValue(),'');
-    await page.getByRole('button',{name:'點滅器220V/6A',exact:true}).click();
-    await page.getByRole('link', {name:/查看 2026-10-12/}).click();
-    await page.locator('[data-order-id="TREND-15"]').waitFor();
-    assert.equal(await page.getByRole('tab',{name:/準備出貨／已送達/}).getAttribute('aria-selected'),'true');
-    await page.goto(base + '/request');
-    assert.equal(await page.getByRole('button', { name: '稽核紀錄維護', exact: true }).count(), 0);
-    await page.getByRole('link', {name:'開啟草稿',exact:true}).click();
-    await page.getByRole('tab', {name:/草稿/}).waitFor();
-    assert.equal(await page.getByRole('tab', {name:/草稿/}).getAttribute('aria-selected'),'true');
-    await page.goto(base + '/request');
-    await page.locator('.text-order-import > summary').click();
-    assert.equal(await page.getByRole('textbox', {name:'叫料文字',exact:true}).getAttribute('placeholder'), '例如：\n8mm2 -1C 電線/白色 (100M/丸)\n2mm2 -2C 電纜/黑色 (100M/丸)\nLED燈泡(E40) 75W 白光\n防水型ELCB 2P 15AT 30mA 0.1S*50只\n【交貨備註】');
-    await page.getByRole('textbox', { name: '叫料文字', exact: true }).fill('電線：5箱\n規格材料 0：1箱\n找不到的特殊材料\n【每棧板不超過850公斤】');
-    await page.getByRole('button', { name: '分析叫料文字', exact: true }).click();
-    assert.equal(await page.getByRole('textbox', { name: '第 1 筆需求數量（M）', exact: true }).inputValue(), '500');
-    assert.equal(await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).inputValue(), '');
-    await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).fill('規格材料 0 長名稱檢查');
-    await page.getByRole('combobox', { name: '第 2 筆對應材料', exact: true }).press('Enter');
-    assert.equal(await page.getByRole('textbox', { name: '第 2 筆需求數量（式）', exact: true }).inputValue(), '1');
-    await page.locator('.text-note-targets').getByRole('checkbox').first().check();
-    await page.getByRole('button', { name: '加入清單（已確認 0／3 筆）', exact: true }).click();
-    assert.equal(await page.locator('.request-cart li').count(), 0);
-    await page.waitForFunction(() => document.activeElement?.getAttribute('data-text-line') === '0');
-    await page.getByRole('textbox', { name: '第 2 筆需求數量（式）', exact: true }).fill('3');
-    await page.getByRole('button', { name: '略過第 3 筆', exact: true }).click();
-    for (const i of [1, 2]) await page.getByRole('checkbox', { name: `已確認第 ${i} 筆材料、單位、數量及備註`, exact: true }).check();
-    await page.locator('#text-order-notes').fill('【每棧板不超過850公斤，請分批交貨】');
-    assert(await page.getByRole('checkbox', {name:'已確認第 1 筆材料、單位、數量及備註',exact:true}).isChecked());
-    const lastLine = await page.locator('.text-order-line').last().boundingBox();
-    assert((await page.locator('#text-order-notes').boundingBox()).y > lastLine.y + lastLine.height);
-    assert.equal(await page.locator('.text-line-actions').first().getByRole('button', {name:'略過第 1 筆',exact:true}).count(),1);
-    for (const width of [390, 1440]) {
-      await page.setViewportSize({ width, height: 1000 }); await assertNoOverflow();
-      await page.screenshot({ path: path.join(artifacts, `text-order-${width}.png`), fullPage: true });
-    }
-    await page.getByRole('button', {name:'加入清單（已確認 2／2 筆）',exact:true}).waitFor();
-    await page.getByRole('button', { name: '恢復第 3 筆', exact: true }).click();
-    await page.getByRole('button', {name:'加入清單（已確認 2／3 筆）',exact:true}).waitFor();
-    await page.locator('[data-text-line="2"]').getByRole('button', {name:'找不到材料？自行填寫',exact:true}).click();
-    await page.getByRole('textbox', {name:'第 3 筆自填材料名稱',exact:true}).fill('特殊保護套');
-    await page.getByRole('textbox', {name:'第 3 筆自填單位',exact:true}).fill('個');
-    await page.getByRole('checkbox', {name:'已確認第 3 筆材料、單位、數量及備註',exact:true}).check();
-    await page.getByRole('button', { name: '加入清單（已確認 3／3 筆）', exact: true }).click();
-    assert.equal(await page.locator('.request-cart li').count(), 3);
-    assert.equal(await page.getByRole('textbox', { name: '叫料文字', exact: true }).inputValue(), '');
-    await page.locator('.request-cart button').click();
-    assert.equal(await page.getByText(/^已從文字叫料加入/).count(),0);
-    assert.equal(await page.locator('.cart-remark').filter({ hasText: '850公斤' }).count(), 1);
-    await page.getByRole('button', { name: '正式送出', exact: true }).click();
-    await page.getByRole('heading', { name: '訂單已送出', exact: true }).waitFor();
-    const imported = state.orders.filter(row => row.orderId === 'CREATED-RWD');
-    assert.deepEqual(imported.map(row => row.quantity), [500, 3, 1]);
-    assert(imported[0].remarks.includes('850公斤'));
-    assert(!imported[1].remarks.includes('850公斤'));
-    assert.equal(imported[2].materialName,'特殊保護套');
-    assert.equal(imported[2].unit,'個');
-    assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ result: 'passed', materialCount: 241 + realCatalog.length, checks: ['footer admin-only audit utility', 'report success dismisses after 6 seconds', 'text order review and manual unit confirmation', 'text import submits through existing order form', 'role homepages', 'whole-order selection', 'targeted material return', 'admin edit icon and save', 'batch review', 'export failure recovery', 'filtered export without status changes', 'explicit review completion and shipping', 'supplier assignment', 'editable 賀冠 quotation', 'selected re-export without state changes', 'individual vendor downloads', 'company isolation', 'dashboard and history pagination', 'draft tab', 'material search shows 8 mobile / 24 desktop options', 'category filters and alias search', 'favorites and recent shortcuts removed', 'mixed material remarks required', 'quantity controls appear after material selection', 'mobile and 1652px desktop request layout', 'no horizontal overflow', 'date-first order identities', '16-month desktop axis', '6-month mobile window navigation', 'month-linked orders and archived order deep link'], screenshots: artifacts }, null, 2));
-  } catch (error) {
-    if (page) { console.error((await page.locator('body').innerText()).slice(0, 1800)); await page.screenshot({ path: path.join(artifacts, 'failed-check.png'), fullPage: true }).catch(() => {}); }
-    throw error;
-  } finally { await browser.close(); }
-})().catch((error) => { console.error(error); process.exitCode = 1; });
+  if(process.env.UI_READING_ONLY!=='1') {
+  for(const width of [1440,768,390,320]){await page.setViewportSize({width,height:900});await goto('/request?loadOrderId=UIUX-20261110-001&action=edit');await page.locator('.crew-final-review').waitFor();await shot('crew-editor-'+width);await page.locator('.crew-final-review li').first().evaluate(e=>e.scrollIntoView({block:'start'}));await page.screenshot({path:path.join(artifacts,'crew-editor-viewport-'+width+'.png')});}
+  await page.setViewportSize({width:390,height:844});await goto('/request');await page.getByRole('button',{name:'搜尋選料',exact:true}).click();await page.getByRole('combobox',{name:'搜尋並選擇材料'}).fill('XLPE');await page.getByRole('listbox').getByRole('option').filter({hasText:'XLPE'}).first().click();await shot('new-request-one-390');await page.locator('.crew-entry-actions').scrollIntoViewIfNeeded();await shot('new-request-one-actions-390');
+  role='Admin';for(const width of [1440,390]){await page.setViewportSize({width,height:900});await goto('/admin');await shot('admin-review-'+width);await page.getByRole('button',{name:'編輯需求單 UIUX-20261110-001',exact:true}).click();await page.locator('.order-editor[open]').waitFor();await shot('admin-editor-'+width);await page.keyboard.press('Escape');}
+  role='User';await page.setViewportSize({width:390,height:844});await goto('/request');
+  await page.getByRole('button',{name:'貼上叫料文字',exact:true}).click();await page.getByRole('textbox',{name:'叫料文字',exact:true}).fill('維運材料測試 3 個');await page.getByRole('button',{name:'分析叫料文字',exact:true}).click();await page.getByRole('button',{name:'找不到材料？自行填寫',exact:true}).click();await page.getByRole('textbox',{name:'第 1 筆名稱',exact:true}).fill('維運材料測試');await page.getByRole('textbox',{name:'第 1 筆單位',exact:true}).fill('個');await page.getByRole('combobox',{name:'第 1 筆廠商',exact:true}).selectOption('伸泰');assert.equal(await page.locator('.material-confirmation:visible').count(),0);await page.getByRole('button',{name:'加入待送出清單（1 筆）',exact:true}).click();await page.getByRole('button',{name:'確認清單並送出（1）',exact:true}).click();await shot('text-import-single-final-390');assert.equal(await page.locator('.crew-final-review li').count(),1);assert.equal(await page.locator('.crew-final-review input[type=checkbox]').count(),0);assert(!(await page.locator('.crew-final-review').innerText()).includes('伸泰'));
+  catalog[0].minQty=100;catalog[0].stepQty=100;await goto('/request');await page.getByRole('combobox',{name:'搜尋並選擇材料'}).fill('XLPE');await page.getByRole('listbox').getByRole('option').filter({hasText:'XLPE'}).first().click();await page.getByRole('spinbutton',{name:'第 1 筆數量',exact:true}).fill('150');await page.getByRole('button',{name:'加入待送出清單',exact:true}).click();assert.equal(await page.locator('.crew-cart li').count(),0);assert((await page.getByRole('alert').allTextContents()).some(s=>s.includes('倍數')));await shot('step-quantity-150-of-100-blocked');
+  catalog[0].minQty=1;catalog[0].stepQty=1;rows=rows.slice(0,1);await page.setViewportSize({width:1440,height:900});await goto('/dashboard?q=XLPE');await page.locator('.order-card-link').first().click();await page.getByRole('link',{name:'修改需求',exact:true}).click();await page.getByRole('button',{name:'修改第 1 筆材料',exact:true}).click();await page.getByRole('spinbutton',{name:'第 1 筆數量',exact:true}).fill('151');await page.getByRole('button',{name:'儲存材料修改',exact:true}).click();await page.getByRole('button',{name:'確認送出',exact:true}).click();await page.waitForURL(url=>url.pathname==='/dashboard'&&url.searchParams.has('order'));await shot('amend-result-1440');assert((await page.locator('.feedback-success').allTextContents()).includes('需求已確認更新。'));
+  rows=Array.from({length:100},(_,i)=>makeRow(i,'UIUX-100-LINES'));rows[99].remarks='清單最後驗證材料';rows[99].content.Remarks=t('清單最後驗證材料');
+  for(const width of [1440,768,390,320]){await page.setViewportSize({width,height:900});await goto('/request?loadOrderId=UIUX-100-LINES&action=edit');assert.equal(await page.locator('.crew-final-review li').count(),100);await shot('hundred-lines-'+width);await page.getByRole('button',{name:'修改第 100 筆材料',exact:true}).click();assert.equal(await page.getByRole('spinbutton',{name:'第 1 筆數量',exact:true}).inputValue(),'122');await page.getByRole('button',{name:'取消修改',exact:true}).click();assert.equal(await page.locator('.crew-final-review li').count(),100);}
+  }
+  assert.equal(errors.length,0,'No client exceptions');for(const e of evidence)if(e.viewport)assert.equal(e.pageWidth,e.viewport.width,'No horizontal overflow: '+e.name);
+  fs.writeFileSync(path.join(artifacts,'geometry.json'),JSON.stringify({evidence,errors,network:'synthetic loopback only; no external business writes; final amendment receipt explicitly mocked'},null,2));
+ }catch(e){if(page)await page.screenshot({path:path.join(artifacts,'failure.png'),fullPage:true}).catch(()=>{});fs.writeFileSync(path.join(artifacts,'failure.txt'),String(e.stack)+'\n'+devOutput.slice(-5000));fs.writeFileSync(path.join(artifacts,'geometry.json'),JSON.stringify({evidence,errors},null,2));console.error(e);process.exitCode=1;}
+ finally{if(browser)await browser.close();if(dev?.exitCode===null)spawnSync('taskkill',['/pid',String(dev.pid),'/t','/f'],{windowsHide:true,stdio:'ignore'});fs.writeFileSync(path.join(artifacts,'server-log.txt'),devOutput);}
+})();

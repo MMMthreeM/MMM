@@ -24,18 +24,42 @@ export async function consumeRate(email: string, action: string, limit: number) 
   if (!Number.isSafeInteger(count) || count < 1) throw new AccessError('安全限制服務回應異常。', 503);
   if (count > limit) throw new AccessError('操作過於頻繁，請稍後再試。', 429);
 }
+export type LockReleaseResult = Readonly<{ kind: 'released-confirmed' | 'not-released' | 'release-unknown' }>;
+export class CoordinationError extends AccessError {
+  constructor(public readonly code: 'acquire-unknown' | 'sec-save-unverified') {
+    super('安全協調結果尚未確認，請聯絡管理員核實。', 503);
+  }
+}
 export async function acquireWriteLock() {
   const key = `${securityPrefix()}:orders-lock`, token = randomUUID();
   // No lease expiry: a paused/late Sheets writer must never overlap a new owner.
-  const acquired = await redisCommand<string | null>('SET', key, token, 'NX');
-  if (acquired !== 'OK') throw new AccessError('目前有其他資料作業或待確認的操作，請稍後重試或聯絡管理員。', 423);
-  return async () => { await redisCommand('EVAL', "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", 1, key, token); };
+  let acquired: unknown;
+  try { acquired = await redisCommand<unknown>('SET', key, token, 'NX'); }
+  catch { throw new CoordinationError('acquire-unknown'); }
+  if (acquired === null) throw new AccessError('目前有其他資料作業或待確認的操作，請稍後重試或聯絡管理員。', 423);
+  if (acquired !== 'OK') throw new CoordinationError('acquire-unknown');
+  const release = async (): Promise<LockReleaseResult> => {
+    try {
+      const result = await redisCommand<unknown>('EVAL', "if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", 1, key, token);
+      return Object.freeze({ kind: result === 1 ? 'released-confirmed' : result === 0 ? 'not-released' : 'release-unknown' });
+    } catch { return Object.freeze({ kind: 'release-unknown' }); }
+  };
+  return Object.assign(release, {
+    owner: Object.freeze({ key, token }),
+    async verifyOwner() {
+      // Leader-executed Lua; no replica GET may certify a dispatch owner.
+      const result = await redisCommand<unknown>('EVAL', "redis.call('INCR',KEYS[2]); if redis.call('GET',KEYS[1])==ARGV[1] then return 1 else return 0 end", 2, key, `${securityPrefix()}:lock-read-sequence`, token);
+      return result === 1;
+    },
+  });
 }
 
 export type AuditEvent = { id: string; timestamp: string; email: string; action: string; target: string; details: string; outcome: string };
 export async function saveAuditEvent(event: AuditEvent) {
   const base = securityPrefix();
-  await redisCommand('EVAL', "redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]); redis.call('ZADD',KEYS[2],ARGV[3],ARGV[1]); return 1", 2, `${base}:audit-events`, `${base}:audit-pending`, event.id, JSON.stringify(event), Date.now());
+  // An exception or unexpected reply cannot prove that neither command applied.
+  const result = await redisCommand<unknown>('EVAL', "redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]); redis.call('ZADD',KEYS[2],ARGV[3],ARGV[1]); return 1", 2, `${base}:audit-events`, `${base}:audit-pending`, event.id, JSON.stringify(event), Date.now());
+  if (result !== 1) throw new CoordinationError('sec-save-unverified');
 }
 export async function pendingAuditEvents(): Promise<AuditEvent[]> {
   const base = securityPrefix();

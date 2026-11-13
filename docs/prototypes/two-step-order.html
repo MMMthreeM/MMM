@@ -1,0 +1,234 @@
+<style>
+#mmm-two-step { --mmm-canvas:light-dark(#f5f6f7,#151d23); --mmm-paper:light-dark(#ffffff,#202b33); --mmm-ink:light-dark(#202d35,#eef3f6); --mmm-muted:light-dark(#596b78,#aabac7); --mmm-line:light-dark(#dce3e8,#3d4b56); --mmm-blue:light-dark(#0077c8,#69bcf5); --mmm-onblue:light-dark(#ffffff,#102c40); --mmm-soft:light-dark(#edf6fd,#223e52); --mmm-green:light-dark(#286145,#97dab2); --mmm-danger:light-dark(#a3333c,#ffabb2); color:var(--mmm-ink); font:15px/1.65 "Microsoft JhengHei","PingFang TC",sans-serif; }
+#mmm-two-step * { box-sizing:border-box; }
+#mmm-two-step [hidden] { display:none!important; }
+#mmm-two-step .mmm-app { background:var(--mmm-canvas); border:1px solid var(--mmm-line); border-radius:12px; overflow:hidden; }
+#mmm-two-step .mmm-topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:17px 28px; background:var(--mmm-paper); border-bottom:1px solid var(--mmm-line); }
+#mmm-two-step .mmm-brand { display:flex; align-items:center; gap:10px; font-weight:600; }
+#mmm-two-step .mmm-brand i { color:var(--mmm-blue); }
+#mmm-two-step .mmm-demo { color:var(--mmm-muted); font-size:12px; padding-right:70px; }
+#mmm-two-step .mmm-main { padding:26px 28px 28px; max-width:1080px; margin:auto; }
+#mmm-two-step h1 { font-size:25px; line-height:1.35; font-weight:650; letter-spacing:-.025em; margin:0 0 22px; }
+#mmm-two-step h2 { font-size:18px; font-weight:600; margin:0; }
+#mmm-two-step p { margin:0; }
+#mmm-two-step button,#mmm-two-step input,#mmm-two-step select,#mmm-two-step textarea { font:inherit; }
+#mmm-two-step button,#mmm-two-step summary { cursor:pointer; }
+#mmm-two-step button:disabled { opacity:.45; cursor:not-allowed; }
+#mmm-two-step .mmm-button { border:1px solid var(--mmm-line); border-radius:6px; color:var(--mmm-ink); background:var(--mmm-paper); padding:10px 16px; min-height:44px; font-weight:600; }
+#mmm-two-step .mmm-button:hover:not(:disabled) { background:var(--mmm-soft); }
+#mmm-two-step .mmm-primary { background:var(--mmm-blue); color:var(--mmm-onblue); border-color:var(--mmm-blue); }
+#mmm-two-step .mmm-primary:hover:not(:disabled) { filter:brightness(.94); background:var(--mmm-blue); }
+#mmm-two-step .mmm-quiet { color:var(--mmm-blue); border:0; padding:8px 4px; min-height:44px; background:transparent; }
+#mmm-two-step .mmm-remove { color:var(--mmm-danger); }
+#mmm-two-step .mmm-stepper { list-style:none; padding:0; margin:0 0 24px; display:flex; align-items:center; gap:18px; }
+#mmm-two-step .mmm-stepper [data-step] { display:flex; align-items:center; gap:9px; color:var(--mmm-muted); font-weight:500; }
+#mmm-two-step .mmm-stepper [data-step][aria-current=step] { color:var(--mmm-blue); font-weight:600; }
+#mmm-two-step .mmm-stepper span { width:29px; height:29px; border-radius:50%; background:var(--mmm-paper); border:1px solid var(--mmm-line); display:grid; place-items:center; font-variant-numeric:tabular-nums; }
+#mmm-two-step .mmm-stepper [data-step][aria-current=step] span { background:var(--mmm-blue); color:var(--mmm-onblue); border-color:var(--mmm-blue); }
+#mmm-two-step .mmm-stepper:after { content:''; }
+#mmm-two-step .mmm-step-link { flex:1; height:1px; max-width:90px; background:var(--mmm-line); }
+#mmm-two-step .mmm-compose { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:20px; align-items:start; }
+#mmm-two-step .mmm-panel { background:var(--mmm-paper); border:1px solid var(--mmm-line); border-radius:10px; padding:22px; min-width:0; }
+#mmm-two-step .mmm-fields { display:grid; gap:17px; margin-top:20px; }
+#mmm-two-step .mmm-label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
+#mmm-two-step .mmm-field { width:100%; min-width:0; min-height:46px; color:var(--mmm-ink); background:var(--mmm-paper); border:1px solid var(--mmm-line); border-radius:6px; padding:10px 12px; font-size:16px; }
+#mmm-two-step textarea.mmm-field { resize:vertical; }
+#mmm-two-step .mmm-field::placeholder { color:var(--mmm-muted); opacity:1; }
+#mmm-two-step .mmm-selected { border-top:1px solid var(--mmm-line); padding-top:16px; margin-top:16px; }
+#mmm-two-step .mmm-material-name { font-weight:600; overflow-wrap:anywhere; white-space:pre-wrap; }
+#mmm-two-step .mmm-meta { color:var(--mmm-muted); font-size:13px; margin-top:4px; }
+#mmm-two-step .mmm-stepper-input { display:grid; grid-template-columns:46px minmax(0,120px) 46px; gap:6px; }
+#mmm-two-step .mmm-stepper-input input { text-align:center; font-variant-numeric:tabular-nums; }
+#mmm-two-step .mmm-notes-toggle { display:flex; justify-content:flex-start; }
+#mmm-two-step .mmm-full { width:100%; }
+#mmm-two-step .mmm-mode-tabs { display:flex; gap:20px; border-bottom:1px solid var(--mmm-line); margin-top:12px; margin-bottom:17px; }
+#mmm-two-step .mmm-mode-tabs button { min-height:44px; padding:8px 0 10px; border:0; border-bottom:2px solid transparent; background:transparent; color:var(--mmm-muted); font-weight:500; }
+#mmm-two-step .mmm-mode-tabs button[aria-pressed=true] { color:var(--mmm-blue); border-bottom-color:var(--mmm-blue); font-weight:600; }
+#mmm-two-step .mmm-cart-heading { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px; }
+#mmm-two-step .mmm-count { color:var(--mmm-muted); font-size:14px; }
+#mmm-two-step .mmm-summary-row { padding:15px 0; border-bottom:1px solid var(--mmm-line); }
+#mmm-two-step .mmm-summary-bottom { display:flex; justify-content:space-between; gap:12px; margin-top:7px; }
+#mmm-two-step .mmm-summary-bottom strong { font-weight:600; font-variant-numeric:tabular-nums; }
+#mmm-two-step .mmm-cart-footer { margin-top:20px; }
+#mmm-two-step .mmm-feedback { color:var(--mmm-green); margin-bottom:15px; font-size:14px; }
+#mmm-two-step .mmm-error { color:var(--mmm-danger); margin-top:8px; font-size:14px; }
+#mmm-two-step .mmm-review-head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 12px; align-items:start; }
+#mmm-two-step .mmm-review-head > div { flex:1 1 220px; }
+#mmm-two-step .mmm-review-head > .mmm-count { white-space:nowrap; }
+#mmm-two-step .mmm-review-list { margin-top:14px; }
+#mmm-two-step .mmm-review-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px 20px; padding:var(--mmm-row-pad,18px) 0; border-bottom:1px solid var(--mmm-line); }
+#mmm-two-step .mmm-review-name { display:flex; align-items:baseline; gap:10px; }
+#mmm-two-step .mmm-index { flex-shrink:0; color:var(--mmm-muted); font-size:13px; }
+#mmm-two-step .mmm-review-qty { font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums; }
+#mmm-two-step .mmm-review-bottom { display:flex; justify-content:space-between; align-items:center; gap:12px; grid-column:1/-1; padding-left:20px; flex-wrap:wrap; }
+#mmm-two-step .mmm-check { min-height:44px; display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer; }
+#mmm-two-step input[type=checkbox] { width:18px; height:18px; accent-color:var(--mmm-blue); }
+#mmm-two-step .mmm-row-actions { display:flex; align-items:center; gap:18px; }
+#mmm-two-step .mmm-remark { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--mmm-muted); font-size:13px; margin-top:5px; }
+#mmm-two-step .mmm-source { font-size:12px; color:var(--mmm-muted); margin-top:6px; }
+#mmm-two-step .mmm-source summary { min-height:32px; }
+#mmm-two-step .mmm-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:20px; }
+#mmm-two-step .mmm-action-group { display:flex; flex-wrap:wrap; gap:9px; }
+#mmm-two-step .mmm-draft { padding-top:17px; margin-top:16px; border-top:1px solid var(--mmm-line); }
+#mmm-two-step .mmm-draft-fields { display:flex; gap:10px; align-items:end; }
+#mmm-two-step .mmm-draft-fields label { flex:1; min-width:0; }
+#mmm-two-step .mmm-success { text-align:center; padding:45px 20px; }
+#mmm-two-step .mmm-success-mark { color:var(--mmm-green); margin:0 auto 15px; }
+#mmm-two-step .mmm-success-mark svg { width:35px; height:35px; }
+#mmm-two-step .mmm-empty { color:var(--mmm-muted); padding:24px 0; }
+#mmm-two-step .mmm-note { font-size:12px; color:var(--mmm-muted); margin-top:14px; }
+#mmm-two-step .mmm-row-gap { display:grid; gap:10px; }
+@media(max-width:660px) {
+ #mmm-two-step .mmm-topbar { padding:14px 16px; align-items:start; }
+ #mmm-two-step .mmm-demo { padding-right:0; max-width:90px; text-align:right; }
+ #mmm-two-step .mmm-main { padding:22px 16px; }
+ #mmm-two-step h1 { font-size:23px; }
+ #mmm-two-step .mmm-compose { grid-template-columns:minmax(0,1fr); }
+ #mmm-two-step .mmm-panel { padding:18px; }
+ #mmm-two-step .mmm-stepper { gap:10px; }
+ #mmm-two-step .mmm-step-link { max-width:30px; }
+ #mmm-two-step .mmm-stepper [data-step] { gap:7px; font-size:14px; }
+ #mmm-two-step .mmm-actions { display:grid; grid-template-columns:1fr 1fr; align-items:center; }
+ #mmm-two-step .mmm-actions > [data-action=back] { grid-column:1/-1; }
+ #mmm-two-step .mmm-actions .mmm-action-group { display:contents; }
+ #mmm-two-step .mmm-action-group { flex:1; justify-content:flex-end; }
+ #mmm-two-step .mmm-draft-fields { flex-wrap:wrap; }
+}
+#mmm-two-step .mmm-analysis-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin-top:24px; }
+#mmm-two-step .mmm-analysis-heading h3 { font-size:17px; font-weight:600; margin:0; }
+#mmm-two-step .mmm-analysis-row { padding:16px 0; border-bottom:1px solid var(--mmm-line); margin-bottom:14px; }
+#mmm-two-step .mmm-analysis-title { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+#mmm-two-step .mmm-analysis-row .mmm-check { margin-top:8px; }
+#mmm-two-step .mmm-analysis-row .mmm-fields { margin-top:12px; gap:12px; }
+#mmm-two-step .mmm-review-bottom { justify-content:flex-end; }
+</style>
+<div id="mmm-two-step" aria-label="建立材料需求兩步驟互動原型">
+ <div class="mmm-app">
+  <header class="mmm-topbar"><div class="mmm-brand"><i data-lucide="layers" aria-hidden="true"></i><span>維運材料管理平台</span></div><span class="mmm-demo">互動示範・範例資料</span></header>
+  <main class="mmm-main">
+   <h1>建立材料需求</h1>
+   <div class="mmm-stepper" role="list" aria-label="建立需求步驟"><div role="listitem" data-step="1" aria-current="step"><span>1</span>選擇材料</div><div class="mmm-step-link" aria-hidden="true"></div><div role="listitem" data-step="2"><span>2</span>確認並送出</div></div>
+   <div class="mmm-feedback" data-ui="notice" role="status" hidden></div>
+   <div data-ui="compose" class="mmm-compose">
+    <section class="mmm-panel" aria-label="選擇及加入材料">
+     <h2 data-ui="formTitle">選擇材料</h2>
+     <div class="mmm-mode-tabs" aria-label="材料加入方式"><button type="button" data-mode="search" aria-pressed="true">搜尋選料</button><button type="button" data-mode="text" aria-pressed="false">貼上叫料文字</button></div>
+     <div data-ui="searchMode">
+      <div class="mmm-fields">
+       <label><span class="mmm-label">材料分類</span><select class="mmm-field" data-ui="category"><option value="">全部分類</option><option>電線電纜</option><option>燈具及電源</option><option>五金配件</option></select></label>
+       <label><span class="mmm-label">搜尋材料</span><input class="mmm-field" data-ui="search" placeholder="輸入名稱、規格或顏色" autocomplete="off"></label>
+       <label><span class="mmm-label">選擇材料</span><select class="mmm-field" data-ui="material" aria-label="選擇材料"><option value="">請選擇材料</option></select></label>
+      </div>
+      <div data-ui="selection" class="mmm-selected" hidden>
+       <p class="mmm-material-name" data-ui="selectedName"></p><p class="mmm-meta" data-ui="selectedMeta"></p>
+       <div class="mmm-fields">
+        <label><span class="mmm-label" data-ui="qtyLabel">需求數量</span><div class="mmm-stepper-input"><button type="button" class="mmm-button" data-action="minus" aria-label="減少數量">−</button><input class="mmm-field" type="number" min="1" data-ui="quantity" aria-label="需求數量"><button type="button" class="mmm-button" data-action="plus" aria-label="增加數量">＋</button></div><p class="mmm-error" data-ui="quantityError" role="alert" hidden></p></label>
+        <div><button type="button" class="mmm-quiet mmm-notes-toggle" data-action="notes">加備註</button><label data-ui="notesField" hidden><span class="mmm-label">附加備註</span><textarea class="mmm-field" data-ui="remarks" rows="2" placeholder="施工位置或特殊需求"></textarea></label></div>
+        <div class="mmm-row-gap"><button type="button" class="mmm-button mmm-primary mmm-full" data-action="add">加入待送出清單</button><button type="button" class="mmm-quiet" data-action="cancelEdit" hidden>取消修改</button></div>
+       </div>
+      </div>
+     </div>
+     <div data-ui="textMode" hidden><label><span class="mmm-label">叫料文字</span><textarea class="mmm-field" data-ui="source" rows="5">2mm² 1C 電線 白色 100M × 5卷
+2mm² 1C 電線 黑色 100M × 5卷
+束帶 120CM 50條</textarea></label><button type="button" class="mmm-button mmm-primary mmm-full" data-action="organize" style="margin-top:15px">分析叫料文字</button><p class="mmm-note">不需要的材料勾選「略過」，其餘會加入待送出清單。</p><div data-ui="analysis" hidden><div class="mmm-analysis-heading"><h3>叫料分析結果</h3><span class="mmm-count" data-ui="analysisCount"></span></div><div data-ui="analysisList"></div><button type="button" class="mmm-button mmm-primary mmm-full" data-action="addAnalyzed">加入待送出清單</button></div><p class="mmm-error" data-ui="sourceError" role="alert" hidden></p></div>
+    </section>
+    <aside class="mmm-panel" aria-label="待送出清單摘要"><div class="mmm-cart-heading"><h2>待送出清單</h2><span class="mmm-count" data-ui="cartCount">3 筆</span></div><div data-ui="summary"></div><div class="mmm-cart-footer"><button type="button" class="mmm-button mmm-primary mmm-full" data-action="next">確認清單並送出（3）</button></div></aside>
+   </div>
+   <section data-ui="review" class="mmm-panel" aria-label="確認並送出" hidden>
+    <div class="mmm-review-head"><div><h2>確認待送出清單</h2><p class="mmm-meta" data-ui="reviewSubtitle">示範工班・共 3 筆材料</p></div></div>
+    <div class="mmm-review-list" data-ui="reviewList"></div>
+    <p class="mmm-error" data-ui="reviewError" role="alert" hidden></p>
+    <div data-ui="draft" class="mmm-draft" hidden><div class="mmm-draft-fields"><label><span class="mmm-label">草稿名稱</span><input class="mmm-field" data-ui="draftName" placeholder="例如：路燈維修備料"></label><button type="button" class="mmm-button" data-action="saveDraft">儲存草稿</button></div><p class="mmm-error" data-ui="draftError" role="alert" hidden></p></div>
+    <div class="mmm-actions"><button type="button" class="mmm-button" data-action="back">新增材料</button><div class="mmm-action-group"><button type="button" class="mmm-button" data-action="draft">存草稿</button><button type="button" class="mmm-button mmm-primary" data-action="submit">確認送出</button></div></div>
+   </section>
+   <section data-ui="success" class="mmm-panel mmm-success" hidden><div class="mmm-success-mark"><i data-lucide="circle-check" aria-hidden="true"></i></div><h2>需求已送出</h2><p class="mmm-meta">示範完成，未建立實際需求單。</p><button type="button" class="mmm-button mmm-primary" data-action="restart" style="margin-top:22px">再試一次</button></section>
+  </main>
+ </div>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('mmm-two-step');
+ const ui=name=>root.querySelector('[data-ui="'+name+'"]');
+ const action=name=>root.querySelector('[data-action="'+name+'"]');
+ const catalog=[
+ {id:'w1',name:'2mm² 1C 電線 白色',unit:'M',vendor:'伸泰',category:'電線電纜',min:100,step:100},
+ {id:'w2',name:'2mm² 1C 電線 黑色',unit:'M',vendor:'伸泰',category:'電線電纜',min:100,step:100},
+ {id:'w3',name:'3.5mm² 2C 電纜 黑色',unit:'M',vendor:'伸泰',category:'電線電纜',min:100,step:100},
+ {id:'l1',name:'LED E27 燈泡 75W 白光',unit:'個',vendor:'益詮',category:'燈具及電源',min:1,step:1},
+ {id:'p1',name:'防水電源供應器 65W',unit:'個',vendor:'益詮',category:'燈具及電源',min:1,step:1},
+ {id:'b1',name:'束帶 120CM',unit:'條',vendor:'賀冠',category:'五金配件',min:1,step:1},
+ {id:'c1',name:'電纜接頭保護套',unit:'只',vendor:'賀冠',category:'五金配件',min:1,step:1}
+ ];
+ let serial=3,step=1,editKey=null,selectedId='',mode='search',lastSource='',sending=false,staged=[],sourceDirty=false,lastPublished='';
+ const defaultItems=()=>[
+ {key:'i1',id:'w1',quantity:500,remarks:'A 區路燈維修',checked:false},
+ {key:'i2',id:'l1',quantity:12,remarks:'',checked:false},
+ {key:'i3',id:'b1',quantity:50,remarks:'',checked:false}
+ ];
+ let items=defaultItems();
+ const design={spacing:18,notesExpanded:false};
+ const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const material=id=>catalog.find(m=>m.id===id);
+ const fmt=value=>Number(value).toLocaleString('zh-TW');
+ function persist(){const privateContent={version:4,items,step,selectedId,editKey,mode,source:ui('source').value,draftName:ui('draftName').value,serial,staged,sourceDirty,lastSource};lastPublished=JSON.stringify(privateContent);if(window.openai?.setWidgetState)window.openai.setWidgetState({modelContent:{prototype:'兩步式下單・文字分析僅略過',step,materials:items.map(i=>({name:material(i.id).name,quantity:i.quantity,unit:material(i.id).unit})),analysis:{count:staged.length,skipped:staged.filter(i=>!i.included).length,willAdd:staged.filter(i=>i.included).length},design},privateContent}).catch(()=>{});}
+ function restore(saved){const s=saved?.privateContent;if(!s||JSON.stringify(s)===lastPublished||s.version!==4||!Array.isArray(s.items)||s.items.length>100||!s.items.every(i=>material(i.id)&&typeof i.key==='string'&&Number.isFinite(i.quantity)&&i.quantity>0))return;items=s.items;staged=Array.isArray(s.staged)?s.staged:[];sourceDirty=Boolean(s.sourceDirty);lastSource=s.lastSource??'';step=[1,2,3].includes(s.step)?s.step:1;selectedId=material(s.selectedId)?s.selectedId:'';editKey=s.editKey??null;mode=s.mode==='text'?'text':'search';serial=Number(s.serial)||100;ui('source').value=s.source??ui('source').value;ui('draftName').value=s.draftName??'';render();filterMaterials();selectMaterial(selectedId,false);}
+ function notice(text){ui('notice').textContent=text;ui('notice').hidden=!text;}
+ function render(){
+  root.style.setProperty('--mmm-row-pad',design.spacing+'px');
+  ui('compose').hidden=step!==1;ui('review').hidden=step!==2;ui('success').hidden=step!==3;
+  root.querySelectorAll('[data-step]').forEach(el=>{if(Number(el.dataset.step)===step)el.setAttribute('aria-current','step');else el.removeAttribute('aria-current');});
+  ui('searchMode').hidden=mode!=='search';ui('textMode').hidden=mode!=='text';root.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===mode)));
+  ui('cartCount').textContent=items.length+' 筆';
+  ui('summary').innerHTML=items.length?items.slice(-5).map(i=>{const m=material(i.id);return '<div class="mmm-summary-row"><p class="mmm-material-name">'+escape(m.name)+'</p><div class="mmm-summary-bottom"><span class="mmm-meta">需求數量</span><strong>'+fmt(i.quantity)+' '+escape(m.unit)+'</strong></div></div>';}).join(''):'<p class="mmm-empty">加入的材料會顯示在這裡。</p>';
+  action('next').textContent='確認清單並送出（'+items.length+'）';action('next').disabled=!items.length||editKey!==null;
+  ui('reviewSubtitle').textContent='示範工班・共 '+items.length+' 筆材料';
+  ui('reviewList').innerHTML=items.length?items.map((i,n)=>{const m=material(i.id);return '<article class="mmm-review-row"><div><div class="mmm-review-name"><span class="mmm-index">'+(n+1)+'.</span><span class="mmm-material-name">'+escape(m.name)+'</span></div>'+(i.remarks?'<p class="mmm-remark" style="padding-left:20px">'+escape(i.remarks)+'</p>':'')+'</div><strong class="mmm-review-qty">'+fmt(i.quantity)+' '+escape(m.unit)+'</strong><div class="mmm-review-bottom"><div class="mmm-row-actions"><button type="button" class="mmm-quiet" data-edit="'+escape(i.key)+'">修改</button><button type="button" class="mmm-quiet mmm-remove" data-remove="'+escape(i.key)+'">移除</button></div></div></article>';}).join(''):'<p class="mmm-empty">目前沒有材料，請先新增材料。</p>';
+  renderAnalysis();
+  action('submit').textContent=sending?'送出中…':'確認送出';action('submit').disabled=sending||!items.length;
+ }
+ function analysisIssue(line){const m=material(line.id),q=Number(line.quantity);if(!m)return '請選擇對應材料';if(!Number.isFinite(q)||q<m.min||q%m.step!==0)return '數量須至少 '+m.min+' '+m.unit+'，且為 '+m.step+' 的倍數';if(line.remarks.length>500)return '備註最多 500 字';return '';}
+ function updateAnalysisCount(){const included=staged.filter(i=>i.included),skipped=staged.length-included.length;ui('analysisCount').textContent='預計加入 '+included.length+' 筆'+(skipped?'・略過 '+skipped+' 筆':'');action('addAnalyzed').textContent=included.length?'加入待送出清單（'+included.length+' 筆）':'完成（全部略過）';}
+ function renderAnalysis(){ui('analysis').hidden=!staged.length;ui('analysisList').innerHTML=staged.map((line,n)=>{const m=material(line.id),issue=analysisIssue(line);return '<section class="mmm-analysis-row" data-analysis-row="'+line.key+'"><div class="mmm-analysis-title"><strong>第 '+(n+1)+' 筆</strong><label class="mmm-check"><input type="checkbox" data-analysis-key="'+line.key+'" aria-label="略過第 '+(n+1)+' 筆材料" data-analysis-field="skip" '+(!line.included?'checked':'')+'>略過</label></div><p class="mmm-source">原文：'+escape(line.source)+'</p>'+(line.included?'<div class="mmm-fields"><label><span class="mmm-label">對應材料</span><select class="mmm-field" aria-label="第 '+(n+1)+' 筆對應材料" data-analysis-key="'+line.key+'" data-analysis-field="id"><option value="">請選擇對應材料</option>'+catalog.map(c=>'<option value="'+c.id+'" '+(c.id===line.id?'selected':'')+'>'+escape(c.name)+'</option>').join('')+'</select></label><label><span class="mmm-label">需求數量'+(m?'（'+m.unit+'）':'')+'</span><input type="number" class="mmm-field" aria-label="第 '+(n+1)+' 筆分析數量" value="'+escape(line.quantity)+'" data-analysis-key="'+line.key+'" data-analysis-field="quantity"></label><label><span class="mmm-label">本筆備註</span><textarea class="mmm-field" rows="2" aria-label="第 '+(n+1)+' 筆分析備註" data-analysis-key="'+line.key+'" data-analysis-field="remarks">'+escape(line.remarks)+'</textarea></label></div><p class="mmm-error" data-line-issue '+(issue?'':'hidden')+'>'+escape(issue)+'</p>':'')+'</section>';}).join('');updateAnalysisCount();}
+ function filterMaterials(){const q=ui('search').value.normalize('NFKC').toLowerCase().trim(),cat=ui('category').value;const filtered=catalog.filter(m=>(!cat||m.category===cat)&&(!q||q.split(/\s+/).every(token=>m.name.normalize('NFKC').toLowerCase().includes(token))));ui('material').innerHTML='<option value="">'+(filtered.length?'請選擇材料':'找不到符合的材料')+'</option>'+filtered.map(m=>'<option value="'+m.id+'">'+escape(m.name)+'</option>').join('');if(filtered.some(m=>m.id===selectedId))ui('material').value=selectedId;}
+ function selectMaterial(id,reset=true){selectedId=id;const m=material(id);ui('selection').hidden=!m;if(m){ui('selectedName').textContent=m.name;ui('selectedMeta').textContent='下單單位：'+m.unit;ui('qtyLabel').textContent='需求數量（'+m.unit+'）';if(reset){ui('quantity').value=m.min;ui('remarks').value='';ui('notesField').hidden=true;action('notes').hidden=false;}ui('quantityError').hidden=true;}ui('formTitle').textContent=editKey===null?'選擇材料':'修改清單材料';action('add').textContent=editKey===null?'加入待送出清單':'儲存材料修改';action('cancelEdit').hidden=editKey===null;}
+ root.addEventListener('click',e=>{
+  const button=e.target.closest('button');if(!button||button.disabled)return;
+  if(button.dataset.mode){mode=button.dataset.mode;notice('');render();persist();return;}
+  const edit=button.dataset.edit,remove=button.dataset.remove;
+  if(edit){const i=items.find(x=>x.key===edit);editKey=i.key;step=1;mode='search';ui('search').value='';ui('category').value='';selectedId=i.id;filterMaterials();selectMaterial(i.id,false);ui('quantity').value=i.quantity;ui('remarks').value=i.remarks;ui('notesField').hidden=!i.remarks;action('notes').hidden=!!i.remarks;notice('');render();persist();return;}
+  if(remove){items=items.filter(i=>i.key!==remove);ui('reviewError').hidden=true;render();persist();return;}
+  switch(button.dataset.action){
+   case 'minus':case 'plus':{const m=material(selectedId);if(m)ui('quantity').value=Math.max(m.min,(Number(ui('quantity').value)||0)+(button.dataset.action==='plus'?m.step:-m.step));ui('quantityError').hidden=true;break;}
+   case 'notes':ui('notesField').hidden=false;action('notes').hidden=true;ui('remarks').focus();break;
+   case 'add':{const m=material(selectedId),q=Number(ui('quantity').value);if(!m)return;if(!Number.isFinite(q)||q<m.min||q%m.step!==0){ui('quantityError').textContent='數量須至少 '+m.min+' '+m.unit+'，且為 '+m.step+' 的倍數';ui('quantityError').hidden=false;return;}if(items.length>=100&&!editKey){notice('每單最多 100 筆材料');return;}const wasEdit=editKey!==null,old=items.find(i=>i.key===editKey),next={key:editKey||'i'+(++serial),id:m.id,quantity:q,remarks:ui('remarks').value.trim(),checked:false,...(old?.source?{source:old.source}:{})};items=wasEdit?items.map(i=>i.key===editKey?next:i):[...items,next];editKey=null;selectedId='';ui('material').value='';selectMaterial('');if(wasEdit)step=2;notice(wasEdit?'已更新清單中的材料。':'已加入：'+m.name);render();break;}
+   case 'cancelEdit':editKey=null;selectedId='';selectMaterial('');step=2;render();break;
+   case 'next':if(sourceDirty||staged.length){mode='text';ui('sourceError').textContent='還有文字叫料未加入，請先加入分析結果，或清除不需要的文字。';ui('sourceError').hidden=false;render();return;}step=2;notice('');ui('reviewError').hidden=true;render();break;
+   case 'back':step=1;notice('');render();break;
+   case 'draft':ui('draft').hidden=!ui('draft').hidden;break;
+   case 'saveDraft':if(!ui('draftName').value.trim()){ui('draftError').textContent='請填草稿名稱';ui('draftError').hidden=false;return;}ui('draftError').hidden=true;ui('draft').hidden=true;notice('示範草稿「'+ui('draftName').value.trim()+'」已保留，尚未正式送出。');break;
+   case 'submit':{ui('reviewError').hidden=true;sending=true;render();setTimeout(()=>{sending=false;step=3;notice('');render();persist();},650);break;}
+   case 'restart':items=defaultItems();staged=[];sourceDirty=false;lastSource='';step=1;editKey=null;selectedId='';mode='search';selectMaterial('');notice('');render();break;
+   case 'organize':{const source=ui('source').value.trim();if(source===lastSource){ui('sourceError').textContent='這段文字已加入清單';ui('sourceError').hidden=false;return;}const parsed=[];for(const line of source.split(/\n/).filter(s=>s.trim())){const clean=line.normalize('NFKC'),m=catalog.find(m=>clean.includes(m.name.normalize('NFKC'))),q=clean.match(/(\d+)\s*M\s*[×*x]\s*(\d+)\s*[卷丸捲]/i)||clean.match(/(\d+)\s*(個|只|條|M)\s*$/i);parsed.push({key:'a'+(++serial),id:m?.id??'',quantity:q?(q.length===3&&/^\d+$/.test(q[2])?Number(q[1])*Number(q[2]):Number(q[1])):'',remarks:'',included:true,source:line});}if(!parsed.length){ui('sourceError').textContent='請先貼上叫料文字';ui('sourceError').hidden=false;return;}staged=parsed;sourceDirty=true;ui('sourceError').hidden=true;notice('');render();break;}
+   case 'addAnalyzed':{const included=staged.filter(i=>i.included);if(!included.length){lastSource=ui('source').value.trim();sourceDirty=false;staged=[];ui('sourceError').hidden=true;notice('本次分析結果已全部略過。');render();break;}const first=included.find(i=>analysisIssue(i));if(first){ui('sourceError').textContent=analysisIssue(first);ui('sourceError').hidden=false;return;}if(items.length+included.length>100){ui('sourceError').textContent='每單最多 100 筆材料';ui('sourceError').hidden=false;return;}items=[...items,...included.map(i=>({key:'i'+(++serial),id:i.id,quantity:Number(i.quantity),remarks:i.remarks,source:i.source}))];lastSource=ui('source').value.trim();sourceDirty=false;staged=[];ui('sourceError').hidden=true;notice('已從文字叫料加入 '+included.length+' 筆材料。');render();break;}
+
+  }
+  persist();
+ });
+ root.addEventListener('change',e=>{
+  if(e.target.matches('[data-ui="material"]'))selectMaterial(e.target.value);
+  if(e.target.matches('[data-ui="category"]'))filterMaterials();
+  const key=e.target.dataset.analysisKey,field=e.target.dataset.analysisField;
+  if(key&&field){const line=staged.find(i=>i.key===key);if(!line)return;
+   if(field==='skip'){line.included=!e.target.checked;renderAnalysis();}
+   else if(field==='id'){line.id=e.target.value;renderAnalysis();}
+   ui('sourceError').hidden=true;updateAnalysisCount();
+  }
+  persist();
+ });
+ root.addEventListener('input',e=>{const key=e.target.dataset.analysisKey,field=e.target.dataset.analysisField;if(key&&['quantity','remarks'].includes(field)){const line=staged.find(i=>i.key===key);if(!line)return;line[field]=e.target.value;const row=e.target.closest('[data-analysis-row]');const message=row.querySelector('[data-line-issue]');message.textContent=analysisIssue(line);message.hidden=!message.textContent;updateAnalysisCount();persist();}if(e.target===ui('source')){sourceDirty=Boolean(e.target.value.trim())&&e.target.value.trim()!==lastSource;staged=[];ui('sourceError').hidden=true;renderAnalysis();}});
+ ui('search').addEventListener('input',filterMaterials);
+ filterMaterials();render();restore(window.openai?.widgetState);
+ window.addEventListener('openai:set_globals',e=>{if(e.detail?.globals?.widgetState)restore(e.detail.globals.widgetState);});
+ if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{render();persist();}});tweak.addSlider(design,'spacing',{label:'清單上下留白',min:10,max:26,unit:'px'});}
+})();
+</script>

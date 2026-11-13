@@ -1,12 +1,14 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import type { OrderRow } from '@/lib/order-view';
+import { apiMessage } from '@/lib/api-message';
 
 async function readOrders(url: string, signal?: AbortSignal): Promise<OrderRow[]> {
   const response = await fetch(url, { cache: 'no-store', signal });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.error || '讀取需求單失敗。');
-  return body.data ?? [];
+  if (!response.ok) throw new Error(apiMessage(body, '讀取需求單失敗，請稍後重新載入。'));
+  if(body.contractVersion!==2||!Array.isArray(body.data))throw Error('需求資料版本不支援。');
+  return body.data;
 }
 
 export function useOrders(admin = false, query = admin ? 'scope=all' : '') {
@@ -16,7 +18,7 @@ export function useOrders(admin = false, query = admin ? 'scope=all' : '') {
   const url = (admin ? '/api/admin/orders' : '/api/orders') + (query ? `?${query}` : '');
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      setOrders(await readOrders(url, signal)); setError('');
+      const data=await readOrders(url, signal);setOrders(data); setError('');
     } catch (reason) {
       if (signal?.aborted) return;
       setError(reason instanceof Error ? reason.message : '無法連線，請稍後再試。');
@@ -24,7 +26,7 @@ export function useOrders(admin = false, query = admin ? 'scope=all' : '') {
   }, [url]);
   useEffect(() => {
     const controller = new AbortController();
-    readOrders(url, controller.signal).then((rows) => { setOrders(rows); setError(''); }).catch((reason) => {
+    readOrders(url, controller.signal).then((data) => { setOrders(data); setError(''); }).catch((reason) => {
       if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '讀取需求單失敗。');
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();

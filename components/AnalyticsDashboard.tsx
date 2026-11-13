@@ -6,7 +6,7 @@ import { useAccount } from '@/components/AppShell';
 import { useOrders } from '@/components/useOrders';
 import { summarizeMaterials, groupOrders, filterOrderGroups } from '@/lib/order-view';
 import SearchSelect from '@/components/SearchSelect';
-import FilterPanel from '@/components/FilterPanel';
+import SearchFilterBar from './SearchFilterBar';
 import Pagination, { usePagination } from '@/components/Pagination';
 import LoadingState from '@/components/LoadingState';
 import BackToTop from '@/components/BackToTop';
@@ -61,21 +61,20 @@ export default function AnalyticsDashboard() {
   const showPeriodOrders = () => { remember(); setView('orders'); };
   const periodLabel = start || end ? (start || '最早需求') + ' — ' + (end || '最新需求') : '全部已送出的需求';
   return <main className="page-frame analytics-frame">
-    <div className="page-heading"><div><h1 className="page-title">{admin ? '各工班材料趨勢分析儀表板' : `${account?.company || '工班'}材料趨勢分析儀表板`}</h1><p className="page-subtitle">選取材料查看叫料趨勢，再下探工班與訂單。</p></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></div>
-    <div className="analytics-material-filter"><SearchSelect label="材料" value={material} options={[...new Set(formal.map(row=>row.materialName))].map(name=>({value:name,label:name}))} onChange={value=>{if(value)drill(value);else {setMaterial('');setSteps([]);}}} emptyLabel="全部材料" /></div>
-    <FilterPanel count={[region,company,start,end,status].filter(Boolean).length}><div className="filter-grid">
+    <div className="page-heading"><div><h1 className="page-title">需求分析</h1><p className="page-subtitle">查看材料用量與月份趨勢，點選材料或工班追溯需求明細。</p></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></div>
+    <SearchFilterBar label="搜尋材料" search={<SearchSelect labelHidden label="材料" value={material} options={[...new Set(formal.map(row=>row.materialName))].map(name=>({value:name,label:name}))} onChange={value=>{if(value)drill(value);else {setMaterial('');setSteps([]);}}} emptyLabel="全部材料" />} count={[region,company,start,end,status].filter(Boolean).length}><div className="filter-grid">
       {admin && <label><span className="form-label">地區</span><select className="form-control" value={region} onChange={event => { setRegion(event.target.value); setCompany(''); }}><option value="">全部地區</option>{[...new Set(formal.map(row => row.reqRegion).filter(Boolean))].sort().map(name => <option key={name}>{name}</option>)}</select></label>}
       {admin && <label><span className="form-label">工班</span><select className="form-control" value={company} onChange={e=>setCompany(e.target.value)}><option value="">全部工班</option>{companies.map(name=><option key={name}>{name}</option>)}</select></label>}
       <div className="date-range-fields" role="group" aria-label="需求日期範圍"><label><span className="form-label">開始日期</span><input type="date" className="form-control" value={start} onChange={e=>setStart(e.target.value)} /></label>
       <label><span className="form-label">結束日期</span><input type="date" className="form-control" value={end} onChange={e=>setEnd(e.target.value)} /></label></div>
       <label><span className="form-label">需求狀態</span><select className="form-control" value={status} onChange={e=>setStatus(e.target.value)}>{FORMAL_STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <button className="btn btn-quiet" onClick={()=>{setMaterial('');setCompany('');setRegion('');setStart('');setEnd('');setStatus('');setView('overview');setSteps([]);}}>清除篩選</button>
-    </div></FilterPanel>
+    </div></SearchFilterBar>
     {invalid && <p role="alert" className="feedback-error">開始日期不能晚於結束日期。</p>}
     {error && <p role="alert" className="feedback-error">{error}<button className="btn btn-quiet" onClick={()=>void refresh()}>重新載入</button></p>}
     <div className="history-tabs" role="group" aria-label="統計層級">{[['overview','材料總覽'],['trend','材料趨勢'],...(admin?[['companies','工班明細']]:[]),['orders','期間訂單明細']].map(([id,label])=><button key={id} aria-pressed={view===id} onClick={()=>{setView(id);setSteps([]);}}>{label}</button>)}</div>
     {(steps.length > 0 || (view === 'trend' && material)) && <div className="analytics-drill-navigation"><button type="button" className="btn btn-secondary" onClick={back}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m10 5-7 7 7 7M3 12h18" /></svg>返回{steps.length ? viewLabels[steps.at(-1)!.view] : '材料總覽'}</button><span className="field-hint">{company ? company + ' / ' : ''}{material || '全部材料'} / {viewLabels[view]}</span></div>}
-    {loading ? <LoadingState label="正在整理材料需求…" /> : <>
+    {loading ? <LoadingState label="正在整理材料需求…" /> : error&&!orders.length?null : <>
       {view !== 'trend' && <div className="summary-strip"><div><span>需求單</span><strong>{groups.length} 張</strong></div><div><span>材料種類</span><strong>{summary.length} 種</strong></div><div><span>統計範圍</span><strong>{company || (admin?'全部工班':account?.company)}</strong></div></div>}
       <p className="field-hint mb-5">{view === 'trend' ? '不含草稿 · 日期依最近送出／更新時間。' : '不含草稿。頻率按需求單計算，數量依單位分開；日期以最近送出／更新時間為準。'}</p>
       {!filtered.length ? <div className="surface empty-state">沒有符合條件的需求，請調整材料或日期。</div> : <>

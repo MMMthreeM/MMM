@@ -1,0 +1,68 @@
+/* Two-step crew order entry. Catalog and mutation authority remain in the existing services. */
+.crew-request-workflow .request-steps { margin-bottom:1.5rem; }
+.crew-compose { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); gap:1.25rem; align-items:start; }
+.crew-compose-main,.crew-input-panel,.crew-cart { min-width:0; }
+.crew-input-panel,.crew-cart { padding:1.5rem; }
+.crew-entry-tabs { display:flex; flex-wrap:wrap; gap:1.25rem; border-bottom:1px solid var(--line); margin-bottom:1.25rem; }
+.crew-entry-tabs .btn { padding:.5rem 0; border-radius:0; border-bottom:2px solid transparent; color:var(--muted); }
+.crew-entry-tabs .btn[aria-pressed=true] { color:var(--delta-blue-strong); border-bottom-color:var(--delta-blue); }
+.crew-entry-panel .material-picker { margin-top:1rem; }
+.crew-entry-actions { display:flex; gap:.75rem; flex-wrap:wrap; margin-top:1rem; }
+.crew-entry-actions .btn-primary { flex:1; }
+.entry-material .v2-material-line { border:0; padding:1rem 0 0; }
+.entry-material .v2-material-line legend { display:none; }
+.entry-material[data-has-rule=true] .material-line-heading { display:none; }
+.without-confirmation .material-main { grid-template-columns:minmax(0,1fr) 160px; }
+.entry-material .without-confirmation .material-main { display:block; }
+.entry-material .material-line-quantity { display:block; max-width:240px; }
+.without-confirmation .material-line-quantity { grid-column:2; }
+.crew-cart-heading,.analysis-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.5rem; }
+.crew-cart ul,.crew-final-review ol { list-style:none; padding:0; margin:1rem 0; }
+.crew-cart li { padding:1rem 0; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.crew-cart li strong { font-weight:600; }
+.crew-cart-quantity { display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem; margin-top:.4rem; font-variant-numeric:tabular-nums; }
+.crew-cart > .btn-primary { width:100%; margin-top:1rem; }
+.crew-text-import.text-order-import { margin:0; padding:0; border:0; }
+.crew-text-import .text-order-source { min-height:150px; }
+.crew-text-import > .btn-primary { width:100%; }
+.crew-text-import .text-analysis { margin-top:1.5rem; }
+.crew-text-import .analysis-row { padding:1rem 0; border-bottom:1px solid var(--line); }
+.crew-text-import .analysis-row > .text-order-original { margin:.5rem 0 .75rem; font-size:.875rem; }
+.crew-text-import .analysis-row .v2-material-line { border:0; padding:.75rem 0 0; }
+.crew-text-import .analysis-row legend,.crew-text-import .analysis-row .material-line-heading { display:none; }
+.crew-text-import .analysis-row .material-main { display:block; }
+.crew-text-import .analysis-row .material-notes { flex-basis:100%; }
+.crew-text-import .analysis-add { width:100%; margin-top:1.25rem; }
+.crew-text-import .import-original { margin-bottom:1rem; }
+.crew-text-import .import-original summary { min-height:44px; color:var(--delta-blue-strong); }
+.crew-final-review { margin-top:0; }
+.crew-final-review li { padding:1rem 0; border-bottom:1px solid var(--line); }
+.crew-review-material { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:1rem; align-items:baseline; }
+.crew-review-material strong { overflow-wrap:anywhere; font-weight:600; }
+.crew-review-material > span { white-space:nowrap; font-weight:600; font-variant-numeric:tabular-nums; }
+.crew-review-row-actions { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:1rem; margin-top:.5rem; }
+.crew-review-row-actions .btn { min-height:44px; padding:.5rem 0; background:transparent; border:0; }
+.crew-review-actions { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.75rem; margin-top:1.5rem; }
+.crew-review-actions > div { display:flex; flex-wrap:wrap; gap:.75rem; }
+.crew-draft-name { display:block; margin-top:1rem; }
+.crew-request-workflow .material-line-heading,.crew-request-workflow .text-order-original,.crew-request-workflow .shared-delivery-note { overflow-wrap:anywhere; }
+.crew-request-workflow .material-line-more[open] { max-width:100%; }
+.crew-request-workflow .r2-disposition { min-width:0; }
+@media(max-width:767px) {
+ .crew-compose { grid-template-columns:minmax(0,1fr); }
+ .crew-input-panel,.crew-cart { padding:1rem; }
+ .crew-review-actions { display:grid; grid-template-columns:1fr 1fr; }
+ .crew-review-actions > .btn { grid-column:1/-1; }
+ .crew-review-actions > div { display:contents; }
+ .crew-review-actions > div > .btn:only-child { grid-column:1/-1; }
+ .crew-review-material { gap:.75rem; }
+}
+.entry-quantity-stepper { display:grid; grid-template-columns:48px minmax(0,1fr) 48px; gap:.4rem; }
+.entry-quantity-stepper .btn { padding:.5rem; }
+.entry-quantity-stepper input { text-align:center; font-variant-numeric:tabular-nums; }
+
+.request-complete-actions { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:.75rem; margin-top:1.25rem; }
+.request-complete .order-reference { overflow-wrap:anywhere; }
+@media(max-width:480px) {
+ .request-complete-actions { flex-direction:column; align-items:stretch; }
+}

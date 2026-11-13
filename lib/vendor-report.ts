@@ -1,3 +1,4 @@
+import 'server-only';
 import { materialColumns } from '@/lib/sheet-table';
 import { canonicalMaterialText, canonicalVendor } from '@/lib/material-identity';
 import fs from 'node:fs/promises';
@@ -7,7 +8,9 @@ import { AccessError } from '@/lib/access';
 import { toMaterialRules } from '@/lib/order-domain';
 import type { OrderRow } from '@/lib/order-view';
 import { taipeiDate } from '@/lib/date-range';
-import { procurementRule, validateProcurementItems } from '@/lib/procurement';
+import { procurementRule, validateProcurementItems, REPORT_QUANTITY_POLICY } from '@/lib/procurement';
+import { procurementQuantityPolicy, validateProcurementQuantity } from './order-confirmation.server';
+import { sumExactQuantities, validateExactQuantity } from './order-change-set';
 import { insertReportRows } from '@/lib/report-rows';
 import { materialReportMap } from '@/lib/material-report-map';
 
@@ -27,10 +30,10 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
     return assigned !== row.materialName || !base ? assigned : reportName({ materialName: base.name, unit: base.unit, vendor: base.vendor });
   };
   for (const row of rows) {
-    const issue = validateProcurementItems([row], rules, true);
+    const issue = validateProcurementItems([row], rules, true, validateProcurementQuantity);
     if (issue) throw new AccessError(`${row.orderId} 的材料「${row.materialName}」：${issue}`, 409);
     const aliases = rules.filter(rule => vendorName(rule.vendor) === vendorName(row.vendor) && normalized(rule.unit) === normalized(row.unit) && normalized(reportName({ materialName: rule.name, unit: rule.unit, vendor: rule.vendor })) === normalized(reportName(row)));
-    if (aliases.some(rule => row.quantity < rule.minQty || row.quantity % rule.stepQty !== 0 || (rule.requiresRemarks && !row.remarks?.trim()))) throw new AccessError(`材料「${row.materialName}」不符目前材料庫的數量或備註規則，請先確認需求單。`, 409);
+    if (aliases.some(rule => { const policy = procurementQuantityPolicy(rule); return !policy || !validateExactQuantity(row.quantity, policy).ok || rule.requiresRemarks && !row.remarks?.trim(); })) throw new AccessError(`材料「${row.materialName}」不符目前材料庫的數量或備註規則，請先確認需求單。`, 409);
   }
   const { name: nameIndex, unit: unitIndex, vendor: vendorIndex, price: priceIndex } = materialColumns(materialRows);
   const prices = new Map<string, number | null>();
@@ -83,7 +86,7 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
     newRows.forEach((item, index) => { cell(item.row, 1, String(lastItemNumber + index + 1)); cell(item.row, 2, item.name); cell(item.row, 3, item.unit); cell(item.row, 4, template.vendor); });
     const totals = new Map<number, Map<number, number>>();
     for (const row of vendorRows) {
-      if (!Number.isSafeInteger(row.quantity) || row.quantity <= 0) throw new AccessError(`${row.orderId} 的材料數量不正確。`, 409);
+      if (!validateExactQuantity(row.quantity, REPORT_QUANTITY_POLICY).ok) throw new AccessError(`${row.orderId} 的材料數量不正確。`, 409);
       const company = template.companies.find((item) => normalized(item.name) === normalized(row.reqCompany));
       if (!company) throw new AccessError(`工班「${row.reqCompany}」未對應${template.vendor}範本欄位，請先確認名稱。`, 409);
       const matches = template.materialRows.filter((item) => normalized(item.name) === normalized(exportName(row)) && normalized(item.unit || '') === normalized(row.unit));
@@ -91,7 +94,10 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
       const material = matches[0];
       if (!material) throw new AccessError(`「${row.materialName}」（${row.unit}）不在${template.vendor}範本中。請在 Materials 的 Report_Name 填寫範本原始料名；僅調整前端名稱請改 Display_Name。`, 409);
       const byCompany = totals.get(material.row) ?? new Map<number, number>();
-      byCompany.set(company.column, (byCompany.get(company.column) ?? 0) + row.quantity); totals.set(material.row, byCompany);
+      const previous = byCompany.get(company.column);
+      const sum = sumExactQuantities(previous === undefined ? [row.quantity] : [previous, row.quantity], REPORT_QUANTITY_POLICY);
+      if (!sum.ok) throw new AccessError('報表數量加總超出可驗證範圍。', 409);
+      byCompany.set(company.column, sum.value); totals.set(material.row, byCompany);
     }
     let grandTotal = 0;
     let hasPricedDemand = false;
@@ -100,7 +106,9 @@ export async function buildVendorReports(rows: OrderRow[], materialRows: unknown
       const priceKey = JSON.stringify([normalized(item.name), normalized(item.unit || ''), template.vendor]);
       const price = prices.get(priceKey) ?? null;
       cell(item.row, 5, price);
-      const total = values ? [...values.values()].reduce((sum, value) => sum + value, 0) : '';
+      const exactTotal = values ? sumExactQuantities([...values.values()], REPORT_QUANTITY_POLICY) : null;
+      if (exactTotal && !exactTotal.ok) throw new AccessError('報表數量加總超出可驗證範圍。', 409);
+      const total = exactTotal?.ok ? exactTotal.value : '';
       if (values) for (const [column, quantity] of values) cell(item.row, column, quantity);
       cell(item.row, 15, total, `IF(COUNT(J${item.row}:N${item.row})=0,"",SUM(J${item.row}:N${item.row}))`);
       cell(item.row, 16, total, `IF(O${item.row}="","",O${item.row})`);
