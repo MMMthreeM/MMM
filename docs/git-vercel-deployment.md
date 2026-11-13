@@ -1,5 +1,17 @@
 # Git／Vercel 部署準備
 
+## 2026-11-13 實際部署狀態
+
+- 新版 Vercel 專案：`mmm-v2`；正式網址：`https://mmm-v2.vercel.app`。
+- 正式部署分支：`release/material-management-v2`；已部署提交 `e316759`，Vercel 顯示 Ready，首頁登入入口正常。
+- 舊專案 `mmm` 的 Production 仍使用 `main` 的 `35a38fc`；原正式網址及部署未切換。
+- 新版 Production 已設定 17 組 Secret，使用本機的新 Sheets 資料庫設定；登入、材料確認及 Cron 三組密鑰另外產生。Preview 未匯入這批設定。
+- 首次雲端安裝失敗 `npm Invalid Version` 已修復：鎖檔一筆缺少版本的 optional 套件紀錄及其 WASM 相依資料由 npm 重新解析，隔離解析與 `npm ci --dry-run` 通過，雲端完整編譯及部署成功。
+- 已取得使用者確認，在既有 Google OAuth 用戶端新增 `https://mmm-v2.vercel.app/api/auth/callback/google`，Google 顯示已儲存；原本兩筆重新導向 URI 均保留。設定傳播後 `redirect_uri_mismatch` 消失，已使用目前瀏覽器的 Google 帳號完成管理員登入，管理工作總覽、案件管理（目前日期範圍 6 張需求）、建立需求頁的 182 種材料及工班名單均成功讀取。未建立或修改需求、未觸發報表匯出或人工 Telegram 通知；寫入、匯出及通知收件仍待正式驗收。
+- 本次匯入介面的工具紀錄曾回顯部分密鑰，已告知使用者。相關憑證仍待協調輪替；若與舊站共用，必須同步更新，避免中斷舊站。
+
+這份文件更新僅為交接紀錄，尚未提交；不影響已部署版本。
+
 ## 2026-11-13 整理紀錄
 
 已建立根目錄「待刪除」，收納 462 個檔案，共 85,618,806 bytes（約 81.7 MiB），沒有直接刪除檔案。完整原路徑、移入位置與數量見本機 `待刪除/移動清單.csv`。
