@@ -59,9 +59,11 @@ export default function AnalyticsDashboard() {
     } else { setMaterial(''); setView('overview'); }
   };
   const showPeriodOrders = () => { remember(); setView('orders'); };
+  const managementParams = new URLSearchParams(Object.entries({startDate:start,endDate:end,company,region,material,status}).filter(([,value])=>value));
+  const managementHref = '/admin' + (managementParams.size ? '?' + managementParams.toString() : '');
   const periodLabel = start || end ? (start || '最早需求') + ' — ' + (end || '最新需求') : '全部已送出的需求';
   return <main className="page-frame analytics-frame">
-    <div className="page-heading"><div><h1 className="page-title">需求分析</h1></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></div>
+    <div className="page-heading"><div><h1 className="page-title">用料分析</h1></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></div>
     <SearchFilterBar label="搜尋材料" search={<SearchSelect labelHidden label="材料" value={material} options={[...new Set(formal.map(row=>row.materialName))].map(name=>({value:name,label:name}))} onChange={value=>{if(value)drill(value);else {setMaterial('');setSteps([]);}}} emptyLabel="全部材料" />} count={[region,company,start,end,status].filter(Boolean).length}><div className="filter-grid">
       {admin && <label><span className="form-label">地區</span><select className="form-control" value={region} onChange={event => { setRegion(event.target.value); setCompany(''); }}><option value="">全部地區</option>{[...new Set(formal.map(row => row.reqRegion).filter(Boolean))].sort().map(name => <option key={name}>{name}</option>)}</select></label>}
       {admin && <label><span className="form-label">工班</span><select className="form-control" value={company} onChange={e=>setCompany(e.target.value)}><option value="">全部工班</option>{companies.map(name=><option key={name}>{name}</option>)}</select></label>}
@@ -88,7 +90,7 @@ export default function AnalyticsDashboard() {
           </section>
         </>}
         {view==='companies' && <section id="company-statistics" className="surface"><div className="p-5"><h2 className="section-title">各工班彙總</h2></div><div className="table-scroll"><table className="data-table w-full text-left"><thead><tr><th>工班</th><th>需求單數</th><th>材料種類</th><th>最近需求</th></tr></thead><tbody>{companyPage.items.map(name=>{const rows=filtered.filter(row=>row.reqCompany===name);return <tr key={name}><th><button className="data-link" onClick={()=>{remember();setCompany(name);setView(material?'trend':'overview');}}>{name}</button></th><td>{new Set(rows.map(row=>row.orderId)).size} 張</td><td>{summarizeMaterials(rows).length} 種</td><td>{rows.map(row=>row.orderDate).sort().at(-1)?.slice(0,10)}</td></tr>;})}</tbody></table></div><Pagination {...companyPage} label="工班統計" /></section>}
-        {view==='orders' && <section className="surface trend-orders" id="period-orders" aria-labelledby="period-orders-title"><div className="trend-order-heading"><div><h2 className="section-title" id="period-orders-title">期間訂單明細</h2><p className="field-hint">{periodLabel} · 共 {groups.length} 張需求單</p></div>{material && <span className="analytics-scope-material">{material}</span>}</div><AnalyticsOrders groups={orderPage.items} admin={admin} material={material} /><Pagination {...orderPage} label="需求訂單" targetId="period-orders" /></section>}
+        {view==='orders' && <section className="surface trend-orders" id="period-orders" aria-labelledby="period-orders-title"><div className="trend-order-heading"><div><h2 className="section-title" id="period-orders-title">期間訂單明細</h2><p className="field-hint">{periodLabel} · 共 {groups.length} 張需求單</p></div><div className="trend-order-tools">{material && <span className="analytics-scope-material">{material}</span>}{admin&&<Link className="btn btn-secondary" href={managementHref}>在案件管理處理</Link>}</div></div><AnalyticsOrders groups={orderPage.items} admin={admin} material={material} /><Pagination {...orderPage} label="需求訂單" targetId="period-orders" /></section>}
       </>}
     </>}<BackToTop />
   </main>;

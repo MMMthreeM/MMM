@@ -12,7 +12,8 @@ import { useOrders } from '@/components/useOrders';
 import { filterOrderGroups, groupOrders, isReturnedOrder, type OrderFilters, type OrderGroup } from '@/lib/order-view';
 import {submissionDisposition,mutationMessage} from '@/lib/order-form-state';
 import OrderHistoryPanel from '@/components/OrderHistoryPanel';
-import { OrderSummary, OrderFacts, OrderMaterials } from './OrderReadView';
+import { OrderFacts, OrderMaterials } from './OrderReadView';
+import OrderListTable from './OrderListTable';
 import { canAdminMoveStatus, type OrderStatus } from '@/lib/order-domain';
 import SearchFilterBar from './SearchFilterBar';
 import Pagination, { usePagination } from '@/components/Pagination';
@@ -40,10 +41,11 @@ function downloadFile(file: ExportFile) {
 function ReviewContent() {
   const params = useSearchParams();
   const batchRecovery=useAttemptRecovery('admin-status-batch'),editorRecovery=useAttemptRecovery('admin-editor');
-  const [filters, setFilters] = useState<OrderFilters>({ ...(params.get('order') ? {} : recentMonthRange()), status: params.get('status') || '', search: params.get('order') || '' });
+  const [filters, setFilters] = useState<OrderFilters>({ ...(params.has('startDate') || params.has('endDate') ? {startDate:params.get('startDate')||'',endDate:params.get('endDate')||''} : params.get('order') ? {} : recentMonthRange()), status: params.get('status') || '', search: params.get('order') || '', company:params.get('company')||'', region:params.get('region')||'', material:params.get('material')||'' });
   const query = new URLSearchParams({ scope: 'all', startDate: filters.startDate || '', endDate: filters.endDate || '' }).toString();
   const { orders, loading, error, refresh } = useOrders(true, query);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(()=>new Set(params.get('order')?[params.get('order')!]:[]));
   const [sort, setSort] = useState('asc');
   const [action, setAction] = useState<Action | null>(null);
   const [note, setNote] = useState('');
@@ -79,7 +81,6 @@ function ReviewContent() {
   const pagination = usePagination(visible, JSON.stringify([filters, sort]));
   const selectable = visible.filter((group) => group.consistent && group.status !== '編輯中');
   const selectedGroups = selectable.filter((group) => selected.has(group.orderId));
-  const exportGroups = visible.filter(group => group.consistent && group.status !== '編輯中');
   const canExportSelected = selectedGroups.length > 0 && selectedGroups.length <= 200 && selectedGroups.every(group => group.consistent && group.status !== '編輯中');
   const canApply = (status: OrderStatus) => batchRecovery.ready&&editorRecovery.ready&&!blockedAttempt && selectedGroups.length > 0 && selectedGroups.every((group) => status === '處理中' ? ['處理中', '審核完畢', '準備出貨'].includes(group.status) : !isReturnedOrder(group)&&canAdminMoveStatus(group.status, status));
   const choices = (key: 'reqCompany' | 'reqRegion' | 'vendor' | 'materialName') => [...new Set(orders.filter(row => key !== 'reqCompany' || !filters.region || row.reqRegion === filters.region).map((row) => row[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'));
@@ -139,7 +140,7 @@ function ReviewContent() {
   };
   if(batchRecovery.record||batchRecovery.invalid||editorRecovery.record||editorRecovery.invalid)return <main className="page-frame"><h1 className="page-title">管理員原作業待核實</h1><OrderAttemptRecovery recovery={batchRecovery.record||batchRecovery.invalid?batchRecovery:editorRecovery}/></main>;
   return <main className={`page-frame review-frame ${selectedGroups.length ? 'review-has-selection' : ''}`}>
-    <div className="page-heading"><div><h1 className="page-title">案件管理</h1><p className="page-subtitle">以整張需求單審核。同一張需求單的材料一起選取、一起更新狀態。</p></div><Link href="/" className="btn btn-secondary">管理工作總覽</Link></div>
+    <div className="page-heading"><div><h1 className="page-title">案件管理</h1></div><Link href="/" className="btn btn-secondary">管理工作總覽</Link></div>
     {message && <div role="status" className="feedback-success mb-5">{message}{file && <button className="mt-2 block font-bold underline" onClick={() => downloadFile(file)}>重新下載全部報表</button>}{vendorFiles.map((item) => <button key={item.vendor} className="mr-4 mt-2 font-bold underline" onClick={() => downloadFile(item)}>下載{item.vendor}報表</button>)}</div>}
     {error && <div className="feedback-error mb-5" role="alert">{error}<button className="ml-3 underline" onClick={() => void refresh()}>重新載入</button></div>}
 
@@ -156,7 +157,6 @@ function ReviewContent() {
     </div></SearchFilterBar>
     {invalidRange && <p role="alert" className="feedback-error mb-5">開始日期不能晚於結束日期。</p>}
     <div className="filter-chips" aria-label="已套用管理條件">{Object.entries(filters).filter(([,value])=>value).map(([key,value])=><button key={key} aria-label={`移除管理條件 ${value}`} onClick={()=>updateFilter(key as keyof OrderFilters,'')}>{value} ×</button>)}</div>
-    <details className="review-tools"><summary>採購工具：匯出與詢價（不改變狀態）</summary><section className="export-strip"><div><h2 className="font-bold">匯出目前範圍</h2><p className="mt-1 text-sm leading-6">目前範圍內有 <strong>{exportGroups.length} 張</strong>正式需求單，共 {exportGroups.reduce((sum, group) => sum + group.items.length, 0)} 筆材料。匯出不改變需求狀態；賀冠材料另以文字詢價。</p></div><button className="btn btn-primary" disabled={!exportGroups.length || busy} onClick={() => open({ type: 'export', ids: exportGroups.map((group) => group.orderId), count: exportGroups.reduce((sum, group) => sum + group.items.length, 0), filters: { ...filters }, scope: 'filtered' })}>匯出篩選範圍</button></section></details>
     <section className="bulk-bar" aria-label="整單批次操作">
       <label className="check-target"><input ref={allBox} type="checkbox" checked={selectable.length > 0 && selectedGroups.length === selectable.length} disabled={!selectable.length || busy} onChange={(event) => setSelected(event.target.checked ? new Set(selectable.map((group) => group.orderId)) : new Set())} /><span>全選本次範圍</span></label>
       <strong aria-live="polite">已選取 {selectedGroups.length} 張單</strong>
@@ -172,20 +172,17 @@ function ReviewContent() {
     {selectedGroups.length > 0 && <div className="mobile-review-actions" aria-label="已選單據操作"><strong>已選 {selectedGroups.length} 張</strong><button className="btn btn-primary" disabled={busy || !canApply('審核完畢')} onClick={() => open({ type: 'status', status: '審核完畢', ids: selectedGroups.map((group) => group.orderId) })}>完成審核</button><details ref={mobileMore} className="mobile-review-more"><summary className="btn btn-secondary">更多操作</summary><div><button className="btn btn-secondary" disabled={busy || !canExportSelected} onClick={() => open({ type: 'export', scope: 'selected', ids: selectedGroups.map((group) => group.orderId), count: selectedGroups.reduce((sum, group) => sum + group.items.length, 0) })}>匯出勾選單據</button><button className="btn btn-secondary" disabled={busy || !canApply('審核完畢')} onClick={() => open({ type: 'status', status: '審核完畢', ids: selectedGroups.map(group => group.orderId) })}>完成審核</button>
         <button className="btn btn-secondary" disabled={busy || !canApply('準備出貨')} onClick={() => open({ type: 'status', status: '準備出貨', ids: selectedGroups.map(group => group.orderId) })}>設為準備出貨</button>
         <button className="btn btn-secondary" disabled={busy || !selectedGroups.some(group => group.items.some(item => canonicalVendor(item.vendor) === '賀冠'))} onClick={() => void requestQuotation()}>賀冠詢價</button><button className="btn btn-secondary" disabled={busy || !canApply('已送達')} onClick={() => open({ type: 'status', status: '已送達', ids: selectedGroups.map((group) => group.orderId) })}>標記已送達</button><button className="btn btn-danger" disabled={busy || !canApply('處理中')} onClick={() => open({ type: 'status', status: '處理中', ids: selectedGroups.map((group) => group.orderId) })}>退回修改</button><p className="field-hint">套用到勾選的完整單據；不符合階段的操作會停用。</p></div></details></div>}
-    <p className="mb-5 text-sm leading-6 text-[var(--muted)]">共 {visible.length} 張需求單。材料與廠商篩選會保留符合單據的全部材料；更換篩選後會清除勾選。各正式需求狀態皆可匯出，匯出與詢價不改變需求狀態。每次最多匯出 200 張單。</p>
+    <p className="result-count">共 {visible.length} 張需求單</p>
     {batchResults.length>0&&<section className="surface review-batch-results p-4" aria-label="逐張處理結果"><h2 className="section-title">本次處理結果</h2><ul>{batchResults.map(result=><li key={result.id}>{result.id}：{result.result}</li>)}</ul></section>}
-    {loading ? <LoadingState label="正在讀取需求單…" /> : error&&!orders.length?null : !visible.length ? <div className="surface empty-state">目前沒有符合條件的正式需求單。</div> : <div id="review-results" className="space-y-6">{pagination.items.map((group) => <section key={group.orderId} data-order-id={group.orderId} className={`surface order-group ${selected.has(group.orderId) ? 'order-selected' : ''}`}>
-      <header className="order-group-heading">
-        <label className="check-target order-select"><input type="checkbox" checked={selected.has(group.orderId)} disabled={busy || !group.consistent} onChange={() => toggle(group.orderId)} aria-label={`選取整張需求單 ${group.orderId}，共 ${group.items.length} 筆材料`} /><span className="sr-only">選取整單</span></label>
-        <div className="min-w-0 flex-1"><OrderSummary group={group}/></div>
-        {group.consistent && <button type="button" className="icon-button" aria-label={`編輯需求單 ${group.orderId}`} title="材料／廠商對應與編輯" disabled={busy} onClick={() => setEditing(group)}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m16 3 5 5M4 16 16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button>}
-      </header>
-      <details className="admin-case-details" open={params.get('order')===group.orderId||selected.has(group.orderId)}><summary>查看 {group.items.length} 筆材料、確認與歷史</summary>
-      {group.consistent && <div className="px-5 py-3"><button className="btn btn-quiet" disabled={busy} onClick={() => setEditing(group)}>材料／廠商對應</button></div>}
-      {group.first.returnNote && <p className="order-return-note">{group.first.returnNote}</p>}<div className="admin-read-content"><h3 className="section-title">需求資料</h3><OrderFacts group={group} admin/></div>
-      {!group.consistent && <p className="feedback-error m-4" role="alert">此單的材料狀態或工班不一致，暫停操作，請管理者確認原始資料。</p>}
-      <div className="admin-read-content"><h3 className="section-title">材料清單 · {group.items.length} 筆</h3><OrderMaterials group={group} admin/><OrderHistoryPanel group={group}/></div></details>
-    </section>)}</div>}
+    {loading ? <LoadingState label="正在讀取需求單…" /> : error&&!orders.length?null : !visible.length ? <div className="surface empty-state">目前沒有符合條件的正式需求單。</div> : <section id="review-results" className="surface admin-order-list"><OrderListTable groups={pagination.items} showCompany material={filters.material} hrefFor={group=>'/admin?order='+encodeURIComponent(group.orderId)}
+      selectionFor={group=><label className="check-target order-list-select"><input type="checkbox" checked={selected.has(group.orderId)} disabled={busy||!group.consistent||group.status==='編輯中'} onChange={()=>toggle(group.orderId)} aria-label={`選取整張需求單 ${group.orderId}，共 ${group.items.length} 筆材料`}/><span className="sr-only">選取整單</span></label>}
+      actionsFor={group=><><button type="button" className="data-link" aria-expanded={expanded.has(group.orderId)} aria-controls={'case-'+group.orderId} onClick={()=>setExpanded(current=>{const next=new Set(current);if(next.has(group.orderId))next.delete(group.orderId);else next.add(group.orderId);return next;})}>{expanded.has(group.orderId)?'收合單據':'查看單據'}</button>{group.consistent&&<button type="button" className="data-link" aria-label={`編輯需求單 ${group.orderId}`} disabled={busy} onClick={()=>setEditing(group)}>編輯</button>}</>}
+      detailsFor={group=><details id={'case-'+group.orderId} className="admin-case-details" open={expanded.has(group.orderId)} onToggle={event=>{const isOpen=event.currentTarget.open;setExpanded(current=>{if(current.has(group.orderId)===isOpen)return current;const next=new Set(current);if(isOpen)next.add(group.orderId);else next.delete(group.orderId);return next;});}}><summary hidden>處理詳情</summary>
+        {group.consistent&&<div className="px-5 py-3"><button className="btn btn-quiet" disabled={busy} onClick={()=>setEditing(group)}>材料／廠商對應</button></div>}
+        <div className="admin-read-content"><h3 className="section-title">需求資料</h3><OrderFacts group={group} admin/></div>
+        {!group.consistent&&<p className="feedback-error m-4" role="alert">此單的材料狀態或工班不一致，暫停操作，請管理者確認原始資料。</p>}
+        <div className="admin-read-content"><OrderMaterials group={group} admin/><OrderHistoryPanel group={group}/></div>
+      </details>}/></section>}
     {editing && <AdminOrderEditor group={editing} onClose={() => setEditing(null)} onSaved={async (notice) => { setSelected(new Set()); setMessage('管理員修改已儲存，單據進度維持不變。' + (notice || '')); await refresh(); }} />}
     <dialog ref={quotationDialog} className="action-dialog quotation-dialog" aria-labelledby="quotation-title" onCancel={closeQuotation}>
       <h2 id="quotation-title" className="section-title">賀冠詢價內容</h2><p className="field-hint mt-3">可編輯後複製，貼至通訊 App。此操作不會傳送訊息或變更需求狀態。</p>

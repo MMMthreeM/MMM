@@ -81,3 +81,16 @@ test('Two-step crew validation omits only checkbox requirements, retaining quant
  assert(validation.editorLineIssues(missing,{...material,requiresRemarks:true},true,false).some(i=>i.field==='source'));
  assert(validation.editorLineIssues(missing,{...material,requiresRemarks:true},true,false).some(i=>i.field==='remarks'));
 });
+
+
+test('integer quantity controls snap to catalog multiples and never produce decimals',()=>{
+  const q=load('lib/order-quantity-input');
+  assert.equal(q.stepIntegerQuantity(150,1,100,100),200);
+  assert.equal(q.stepIntegerQuantity(150,-1,100,100),100);
+  assert.equal(q.stepIntegerQuantity(100,-1,100,100),100);
+  assert.equal(q.stepIntegerQuantity(0,1,12,6),12);
+  assert.deepEqual(q.integerQuantityRule(1.5,.5),{minimum:2,step:1});
+  assert.deepEqual(q.integerQuantityRule(1,1.5),{minimum:3,step:3});
+  assert.equal(q.stepIntegerQuantity(3,1,1,1.5),6);
+  assert.equal(q.stepIntegerQuantity(2,1,0,-1),null);
+});

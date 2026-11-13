@@ -13,7 +13,7 @@ export default function CrewOverview() {
   const recent = groups.filter(g => g.status !== '編輯中').sort((a,b) => b.first.orderDate.localeCompare(a.first.orderDate)).slice(0,3);
   return <main className="page-frame crew-home"><div className="page-heading"><div><h1 className="page-title">工班工作總覽</h1><p className="page-subtitle">建立需求、處理待辦，追蹤同工班共享的材料需求。</p></div></div>
     <section className="home-create"><div><h2 className="section-title">{!loading&&!error&&!groups.length?'建立第一張材料需求':'今天需要哪些材料？'}</h2><p>搜尋材料或貼上叫料清單，整理完成後送交審核。</p></div><Link href="/request" className="btn btn-primary">建立材料需求</Link></section>
-    {loading ? <LoadingState label="正在整理工班需求…"/> : error ? <div role="alert" className="feedback-error">暫時無法取得最新工班需求，不能確認待辦件數。<button className="btn btn-quiet" onClick={()=>void refresh()}>重新載入需求</button></div> : <>
+    {loading ? <LoadingState label="正在整理歷史需求明細…"/> : error ? <div role="alert" className="feedback-error">暫時無法取得最新歷史需求明細，不能確認待辦件數。<button className="btn btn-quiet" onClick={()=>void refresh()}>重新載入需求</button></div> : <>
       
       <h2 className="section-title workspace-heading">待辦與需求進度</h2>
       <WorkQueue label="工班待辦概況" items={[

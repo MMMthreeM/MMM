@@ -103,6 +103,11 @@
 .order-list-actions .order-card-link:hover { background: transparent; text-decoration: underline; }
 .order-list-table .order-list-remarks { font-size: .875rem; color: var(--muted); font-weight: 400; margin-top: .2rem; white-space: pre-wrap; }
 .order-list-draft-name { display: block; margin-top: .5rem; font-weight: 600; }
+.order-list-select { display: inline-flex; margin-right: .65rem; vertical-align: middle; }
+.order-list-table .order-list-detail-row > td { padding: 0; width: auto; text-align: left; }
+.order-list-table .order-list-detail-row > td > details { text-align: left; }
+.admin-order-list .order-list-table tbody tr:has(input:checked) { background: var(--soft-blue); }
+.history-tabs button { background: transparent; border-radius: 0; }
 @container (max-width: 800px) {
   .order-list-table { min-width: 0; }
   .order-list-table thead { display: none; }
@@ -116,6 +121,8 @@
   .order-list-table td:last-child { grid-column: 1/-1; width: auto; padding: 0; text-align: right; }
   .order-list-actions .data-link { display: inline-flex; align-items: center; margin-left: 1rem; }
   .order-list-table .order-date { font-size: .9375rem; }
+  .order-list-table tbody tr.order-list-detail-row { display: block; padding: 0; }
+  .order-list-table .order-list-detail-row > td { display: block; padding: 0; width: auto; text-align: left; }
 }
 @media(min-width:1100px) {
   .work-queue { grid-template-columns: repeat(4,minmax(0,1fr)); }
